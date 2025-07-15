@@ -916,28 +916,38 @@
         async function makeRequest(url, options = {}) {
             try {
                 console.log('Making request to:', url);
-                const response = await fetch(url, options);
+                
+                // Add timeout for Vercel
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 25000); // 25 second timeout
+                
+                const response = await fetch(url, {
+                    ...options,
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
                 
                 console.log('Response status:', response.status);
-                console.log('Response headers:', response.headers);
                 
-                // Check if response is OK
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
                 
-                // Check if response is JSON
                 const contentType = response.headers.get('content-type');
                 if (!contentType || !contentType.includes('application/json')) {
                     const text = await response.text();
                     console.error('Expected JSON but got:', text);
-                    throw new Error(`Expected JSON but got: ${text.substring(0, 100)}...`);
+                    throw new Error(`Server returned non-JSON response`);
                 }
                 
                 const data = await response.json();
                 console.log('Response data:', data);
                 return data;
             } catch (error) {
+                if (error.name === 'AbortError') {
+                    throw new Error('Request timed out - this may take a while for large files');
+                }
                 console.error('Request failed:', error);
                 throw error;
             }
@@ -1269,7 +1279,7 @@
             // Check server health on load
             setTimeout(checkServerHealth, 1000);
             
-            // Check FFmpeg availability
+            // Check FFmpeg availability for Vercel
             checkFFmpegAvailability();
             
             // Add change listeners to radio buttons
@@ -1311,6 +1321,28 @@
             
             console.log('💕 Rashmi\'s Personal Downloader loaded successfully!');
         });
+        
+        // Add new function to check server health
+        async function checkServerHealth() {
+            try {
+                const result = await makeRequest('/health');
+                console.log('✅ Server health check passed:', result.message);
+            } catch (error) {
+                console.warn('⚠️ Server health check failed:', error.message);
+            }
+        }
+        
+        // Add function to check FFmpeg availability
+        async function checkFFmpegAvailability() {
+            try {
+                const result = await makeRequest('/check-ffmpeg');
+                if (!result.available) {
+                    console.warn('⚠️ FFmpeg not available - audio will be in original format');
+                }
+            } catch (error) {
+                console.warn('⚠️ Could not check FFmpeg availability');
+            }
+        }
     </script>
 </body>
 </html>
