@@ -108,22 +108,54 @@ class VercelCompatibleDownloader:
                 # First, try to extract info without downloading
                 try:
                     info = ydl.extract_info(url, download=False)
-                    if info is None:
-                        return {'status': 'error', 'message': 'Could not extract video information'}
                     
-                    # Check if info has the required fields
+                    # Check if info extraction failed
+                    if info is None:
+                        return {'status': 'error', 'message': 'Video not available or private. Please check the URL.'}
+                    
+                    # Validate info structure
                     if not isinstance(info, dict):
                         return {'status': 'error', 'message': 'Invalid video information received'}
+                    
+                    # Check for essential fields
+                    if not info.get('title') and not info.get('entries'):
+                        return {'status': 'error', 'message': 'Video information incomplete or corrupted'}
+                    
+                    # Additional validation for entries if it's a playlist
+                    if 'entries' in info:
+                        entries = info.get('entries')
+                        if entries is None:
+                            return {'status': 'error', 'message': 'Playlist information not available'}
+                        
+                        # Filter out None entries
+                        valid_entries = [entry for entry in entries if entry is not None]
+                        if not valid_entries:
+                            return {'status': 'error', 'message': 'No valid videos found in playlist'}
+                        
+                        # Update info with valid entries only
+                        info['entries'] = valid_entries
                     
                     # Now download with the validated info
                     info = ydl.extract_info(url, download=True)
                     
+                    # Re-validate after download
+                    if info is None:
+                        return {'status': 'error', 'message': 'Download failed - video may be unavailable'}
+                    
+                except yt_dlp.utils.DownloadError as e:
+                    error_msg = str(e)
+                    if "Video unavailable" in error_msg or "Private video" in error_msg:
+                        return {'status': 'error', 'message': 'Video is private, unavailable, or has been removed'}
+                    elif "Sign in to confirm your age" in error_msg:
+                        return {'status': 'error', 'message': 'Age-restricted video - cannot download'}
+                    else:
+                        return {'status': 'error', 'message': f'Download failed: {error_msg}'}
                 except Exception as extract_error:
                     return {'status': 'error', 'message': f'Failed to extract video info: {str(extract_error)}'}
                 
-                # Validate the downloaded info
-                if not info:
-                    return {'status': 'error', 'message': 'No video information available'}
+                # Final validation after download
+                if not info or not isinstance(info, dict):
+                    return {'status': 'error', 'message': 'Download completed but video information is invalid'}
                 
                 # Cache the download info
                 download_id = f"yt_{datetime.now().timestamp()}"
@@ -135,17 +167,24 @@ class VercelCompatibleDownloader:
                 
                 content_type = 'audio' if audio_only else 'video'
                 
-                # Handle playlist vs single video
+                # Handle playlist vs single video with proper null checks
                 if info.get('entries') is not None:  # Playlist
                     entries = info.get('entries', [])
-                    if not entries:
-                        return {'status': 'error', 'message': 'Playlist is empty or unavailable'}
+                    
+                    # Filter out None entries again as a safety measure
+                    valid_entries = [entry for entry in entries if entry is not None and isinstance(entry, dict)]
+                    
+                    if not valid_entries:
+                        return {'status': 'error', 'message': 'Playlist is empty or all videos are unavailable'}
                     
                     titles = []
-                    for entry in entries:
-                        if entry and isinstance(entry, dict):
-                            title = entry.get('title', 'Unknown')
+                    for entry in valid_entries:
+                        title = entry.get('title', 'Unknown Title')
+                        if title and title.strip():
                             titles.append(title)
+                    
+                    if not titles:
+                        titles = ['Unknown Title']
                     
                     return {
                         'status': 'success',
@@ -155,9 +194,16 @@ class VercelCompatibleDownloader:
                         'download_id': download_id
                     }
                 else:
-                    # Single video
-                    title = info.get('title', 'Unknown')
-                    uploader = info.get('uploader', 'Unknown')
+                    # Single video with null checks
+                    title = info.get('title', 'Unknown Title')
+                    uploader = info.get('uploader', 'Unknown Uploader')
+                    
+                    # Ensure title is not None or empty
+                    if not title or not title.strip():
+                        title = 'Unknown Title'
+                    
+                    if not uploader or not uploader.strip():
+                        uploader = 'Unknown Uploader'
                     
                     return {
                         'status': 'success',
@@ -171,11 +217,17 @@ class VercelCompatibleDownloader:
         except Exception as e:
             error_msg = str(e)
             if "argument of type 'NoneType' is not iterable" in error_msg:
-                return {'status': 'error', 'message': 'Video not available or private. Please check the URL.'}
+                return {'status': 'error', 'message': 'Video not available or private. Please check the URL and try again.'}
             elif "Video unavailable" in error_msg:
-                return {'status': 'error', 'message': 'Video is unavailable or has been removed.'}
+                return {'status': 'error', 'message': 'Video is unavailable or has been removed from YouTube.'}
             elif "Private video" in error_msg:
                 return {'status': 'error', 'message': 'Cannot download private videos.'}
+            elif "Sign in to confirm your age" in error_msg:
+                return {'status': 'error', 'message': 'Age-restricted video - cannot download without authentication.'}
+            elif "HTTP Error 403" in error_msg:
+                return {'status': 'error', 'message': 'Access denied - video may be region-blocked or private.'}
+            elif "HTTP Error 404" in error_msg:
+                return {'status': 'error', 'message': 'Video not found - it may have been deleted.'}
             else:
                 return {'status': 'error', 'message': f'YouTube error: {error_msg}'}
     
