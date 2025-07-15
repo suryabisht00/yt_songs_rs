@@ -1,0 +1,51 @@
+# Flask web framework
+Flask==2.3.3
+Werkzeug==2.3.7
+
+# Video/Audio downloading
+yt-dlp==2023.10.13
+instaloader==4.9.6
+
+# HTTP requests
+requests==2.31.0
+
+# File handling and utilities
+Pillow==10.0.1
+
+# Optional: For better performance
+gunicorn==21.2.0
+
+# Development dependencies (optional)
+python-dotenv==1.0.0
+
+# Additional dependencies that might be needed
+urllib3==2.0.7
+certifi==2023.7.22
+charset-normalizer==3.3.2
+idna==3.4
+
+gunicorn==21.2.0  # WSGI HTTP Server for UNIX
+
+# For JSON handling (usually included with Python)
+# json - built-in module
+
+# For regular expressions (usually included with Python)
+# re - built-in module
+
+# For datetime handling (usually included with Python)
+# datetime - built-in module
+
+# For OS operations (usually included with Python)
+# os - built-in module
+
+# For threading (usually included with Python)
+# threading - built-in module
+
+# For temporary files (usually included with Python)
+# tempfile - built-in module
+
+# For subprocess operations (usually included with Python)
+# subprocess - built-in module
+
+# For file operations (usually included with Python)
+# shutil - built-in module
