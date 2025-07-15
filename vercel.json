@@ -16,7 +16,14 @@
             "dest": "app.py"
         }
     ],
+    "functions": {
+        "app.py": {
+            "memory": 1024,
+            "maxDuration": 30
+        }
+    },
     "env": {
-        "PYTHONPATH": "/var/task"
+        "PYTHONPATH": "/var/task",
+        "TMPDIR": "/tmp"
     }
 }

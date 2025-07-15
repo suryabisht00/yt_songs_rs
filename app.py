@@ -90,6 +90,8 @@ class VercelCompatibleDownloader:
                     'extractaudio': True,
                     'audioformat': 'mp3' if self.check_ffmpeg_availability() else 'best',
                     'audioquality': '192',
+                    'socket_timeout': 30,
+                    'retries': 3,
                 }
             else:
                 ydl_opts = {
@@ -98,10 +100,30 @@ class VercelCompatibleDownloader:
                     'writesubtitles': False,
                     'ignoreerrors': True,
                     'no_warnings': True,
+                    'socket_timeout': 30,
+                    'retries': 3,
                 }
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
+                # First, try to extract info without downloading
+                try:
+                    info = ydl.extract_info(url, download=False)
+                    if info is None:
+                        return {'status': 'error', 'message': 'Could not extract video information'}
+                    
+                    # Check if info has the required fields
+                    if not isinstance(info, dict):
+                        return {'status': 'error', 'message': 'Invalid video information received'}
+                    
+                    # Now download with the validated info
+                    info = ydl.extract_info(url, download=True)
+                    
+                except Exception as extract_error:
+                    return {'status': 'error', 'message': f'Failed to extract video info: {str(extract_error)}'}
+                
+                # Validate the downloaded info
+                if not info:
+                    return {'status': 'error', 'message': 'No video information available'}
                 
                 # Cache the download info
                 download_id = f"yt_{datetime.now().timestamp()}"
@@ -113,8 +135,18 @@ class VercelCompatibleDownloader:
                 
                 content_type = 'audio' if audio_only else 'video'
                 
-                if 'entries' in info:  # Playlist
-                    titles = [entry.get('title', 'Unknown') for entry in info['entries'] if entry]
+                # Handle playlist vs single video
+                if info.get('entries') is not None:  # Playlist
+                    entries = info.get('entries', [])
+                    if not entries:
+                        return {'status': 'error', 'message': 'Playlist is empty or unavailable'}
+                    
+                    titles = []
+                    for entry in entries:
+                        if entry and isinstance(entry, dict):
+                            title = entry.get('title', 'Unknown')
+                            titles.append(title)
+                    
                     return {
                         'status': 'success',
                         'message': f'Downloaded {len(titles)} {content_type}s from playlist',
@@ -123,16 +155,29 @@ class VercelCompatibleDownloader:
                         'download_id': download_id
                     }
                 else:
+                    # Single video
+                    title = info.get('title', 'Unknown')
+                    uploader = info.get('uploader', 'Unknown')
+                    
                     return {
                         'status': 'success',
                         'message': f'YouTube {content_type} downloaded successfully!',
-                        'title': info.get('title', 'Unknown'),
-                        'uploader': info.get('uploader', 'Unknown'),
+                        'title': title,
+                        'uploader': uploader,
                         'type': content_type,
                         'download_id': download_id
                     }
+                    
         except Exception as e:
-            return {'status': 'error', 'message': f'YouTube error: {str(e)}'}
+            error_msg = str(e)
+            if "argument of type 'NoneType' is not iterable" in error_msg:
+                return {'status': 'error', 'message': 'Video not available or private. Please check the URL.'}
+            elif "Video unavailable" in error_msg:
+                return {'status': 'error', 'message': 'Video is unavailable or has been removed.'}
+            elif "Private video" in error_msg:
+                return {'status': 'error', 'message': 'Cannot download private videos.'}
+            else:
+                return {'status': 'error', 'message': f'YouTube error: {error_msg}'}
     
     def download_instagram_content(self, url, path):
         """Download Instagram content with Vercel optimization"""
@@ -186,16 +231,35 @@ class VercelCompatibleDownloader:
                     'extractaudio': True,
                     'audioformat': 'mp3' if self.check_ffmpeg_availability() else 'best',
                     'no_warnings': True,
+                    'socket_timeout': 30,
+                    'retries': 3,
+                    'ignoreerrors': True,
                 }
             else:
                 ydl_opts = {
                     'outtmpl': os.path.join(path, '%(title)s.%(ext)s'),
                     'format': 'best[height<=720]/best',
                     'no_warnings': True,
+                    'socket_timeout': 30,
+                    'retries': 3,
+                    'ignoreerrors': True,
                 }
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
+                # Extract info first to validate
+                try:
+                    info = ydl.extract_info(url, download=False)
+                    if info is None:
+                        return {'status': 'error', 'message': 'Could not extract media information'}
+                    
+                    # Download with validated info
+                    info = ydl.extract_info(url, download=True)
+                    
+                except Exception as extract_error:
+                    return {'status': 'error', 'message': f'Failed to extract media info: {str(extract_error)}'}
+                
+                if not info:
+                    return {'status': 'error', 'message': 'No media information available'}
                 
                 download_id = f"gen_{datetime.now().timestamp()}"
                 download_cache[download_id] = {
@@ -205,16 +269,24 @@ class VercelCompatibleDownloader:
                 }
                 
                 content_type = 'audio' if audio_only else 'media'
+                title = info.get('title', 'Unknown') if info else 'Unknown'
+                extractor = info.get('extractor', 'Unknown') if info else 'Unknown'
+                
                 return {
                     'status': 'success',
                     'message': f'{content_type.title()} downloaded successfully!',
-                    'title': info.get('title', 'Unknown'),
-                    'extractor': info.get('extractor', 'Unknown'),
+                    'title': title,
+                    'extractor': extractor,
                     'type': content_type,
                     'download_id': download_id
                 }
+                
         except Exception as e:
-            return {'status': 'error', 'message': f'Download error: {str(e)}'}
+            error_msg = str(e)
+            if "argument of type 'NoneType' is not iterable" in error_msg:
+                return {'status': 'error', 'message': 'Media not available or private. Please check the URL.'}
+            else:
+                return {'status': 'error', 'message': f'Download error: {error_msg}'}
     
     def extract_instagram_shortcode(self, url):
         """Extract shortcode from Instagram URL"""
