@@ -13,6 +13,8 @@ import shutil
 import io
 import base64
 from urllib.parse import urlparse
+import random
+import time
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-here-change-this'
@@ -27,10 +29,112 @@ download_cache = {}
 class VercelCompatibleDownloader:
     def __init__(self):
         self.session = requests.Session()
+        # Rotate user agents to bypass restrictions
+        self.user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/121.0',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0'
+        ]
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            'User-Agent': random.choice(self.user_agents),
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1'
         })
         
+    def get_bypass_options(self, url):
+        """Get bypass options for different scenarios"""
+        base_options = {
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': False,
+            'socket_timeout': 30,
+            'retries': 5,
+            'fragment_retries': 5,
+            'ignoreerrors': True,
+            'no_check_certificate': True,
+            'prefer_insecure': True,
+            # Bypass geo-restrictions
+            'geo_bypass': True,
+            'geo_bypass_country': ['US', 'UK', 'CA', 'AU', 'DE', 'FR', 'JP'],
+            # User agent rotation
+            'http_headers': {
+                'User-Agent': random.choice(self.user_agents),
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Cache-Control': 'max-age=0'
+            }
+        }
+        
+        # YouTube specific bypasses
+        if 'youtube.com' in url or 'youtu.be' in url:
+            base_options.update({
+                # Try to bypass age restrictions
+                'age_limit': 99,
+                'mark_watched': False,
+                'writesubtitles': False,
+                'writeautomaticsub': False,
+                'allsubtitles': False,
+                'listsubtitles': False,
+                # Use alternative extractors
+                'youtube_include_dash_manifest': False,
+                'youtube_include_hls_manifest': False,
+                # Cookie support for login bypass
+                'cookiefile': None,
+                'cookiesfrombrowser': None,
+                # Additional bypass techniques
+                'extractor_args': {
+                    'youtube': {
+                        'skip': ['dash', 'hls'],
+                        'player_skip': ['js', 'configs'],
+                        'player_client': ['android', 'web'],
+                        'comment_sort': ['top'],
+                        'max_comments': ['0']
+                    }
+                }
+            })
+        
+        return base_options
+    
+    def try_alternative_extractors(self, url):
+        """Try alternative extraction methods"""
+        alternatives = [
+            # Try with different client configurations
+            {'extractor_args': {'youtube': {'player_client': ['android']}}},
+            {'extractor_args': {'youtube': {'player_client': ['web']}}},
+            {'extractor_args': {'youtube': {'player_client': ['ios']}}},
+            {'extractor_args': {'youtube': {'player_client': ['mweb']}}},
+            # Try with different bypass methods
+            {'geo_bypass_country': 'US'},
+            {'geo_bypass_country': 'UK'},
+            {'geo_bypass_country': 'CA'},
+            # Try with age bypass
+            {'age_limit': 999},
+        ]
+        
+        # Add user agent variations
+        for ua in self.user_agents[:3]:
+            alternatives.append({'http_headers': {'User-Agent': ua}})
+        
+        for alt_config in alternatives:
+            try:
+                print(f"Trying alternative config: {alt_config}")
+                yield alt_config
+            except Exception as e:
+                print(f"Alternative config failed: {e}")
+                continue
+    
     def detect_platform(self, url):
         """Detect the platform from URL"""
         url = url.lower()
@@ -77,178 +181,255 @@ class VercelCompatibleDownloader:
             return False
     
     def download_youtube_content(self, url, path, audio_only=False):
-        """Download YouTube content with Vercel optimization"""
+        """Download YouTube content with advanced bypass techniques"""
         try:
+            # Base configuration with bypass options
+            base_opts = self.get_bypass_options(url)
+            
             if audio_only:
-                # Simplified audio options for Vercel
-                ydl_opts = {
+                base_opts.update({
                     'outtmpl': os.path.join(path, '%(title)s.%(ext)s'),
                     'format': 'bestaudio[ext=m4a]/bestaudio/best',
-                    'writesubtitles': False,
-                    'ignoreerrors': True,
-                    'no_warnings': True,
                     'extractaudio': True,
                     'audioformat': 'mp3' if self.check_ffmpeg_availability() else 'best',
                     'audioquality': '192',
-                    'socket_timeout': 30,
-                    'retries': 3,
-                }
+                })
             else:
-                ydl_opts = {
+                base_opts.update({
                     'outtmpl': os.path.join(path, '%(title)s.%(ext)s'),
-                    'format': 'best[height<=720]/best',  # Limit quality for Vercel
-                    'writesubtitles': False,
-                    'ignoreerrors': True,
-                    'no_warnings': True,
-                    'socket_timeout': 30,
-                    'retries': 3,
-                }
+                    'format': 'best[height<=720]/best',
+                })
             
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                # First, try to extract info without downloading
+            # Try multiple extraction attempts with different configurations
+            last_error = None
+            
+            for attempt, alt_config in enumerate(self.try_alternative_extractors(url)):
                 try:
-                    info = ydl.extract_info(url, download=False)
+                    print(f"Attempt {attempt + 1}: Trying with config {alt_config}")
                     
-                    # More specific validation for different scenarios
-                    if info is None:
-                        return {'status': 'error', 'message': 'Unable to extract video information. Video may be private, deleted, or region-blocked.'}
+                    # Merge base options with alternative config
+                    ydl_opts = {**base_opts, **alt_config}
                     
-                    # Validate info structure
-                    if not isinstance(info, dict):
-                        return {'status': 'error', 'message': 'Invalid video data received from YouTube'}
-                    
-                    # Check if it's a playlist
-                    if 'entries' in info:
-                        entries = info.get('entries')
-                        if entries is None:
-                            return {'status': 'error', 'message': 'Playlist exists but contains no accessible videos'}
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        # First try to extract info
+                        info = ydl.extract_info(url, download=False)
                         
-                        # Filter out None entries and validate each entry
-                        valid_entries = []
-                        for entry in entries:
-                            if entry is not None and isinstance(entry, dict):
-                                # Basic validation for each entry
-                                if entry.get('title') is not None or entry.get('id') is not None:
-                                    valid_entries.append(entry)
+                        if info is None:
+                            print(f"Info extraction failed for attempt {attempt + 1}")
+                            continue
                         
-                        if not valid_entries:
-                            return {'status': 'error', 'message': 'Playlist contains no downloadable videos. Videos may be private or deleted.'}
+                        # Validate extracted info
+                        if not self.validate_extracted_info(info):
+                            print(f"Info validation failed for attempt {attempt + 1}")
+                            continue
                         
-                        # Update info with valid entries only
-                        info['entries'] = valid_entries
-                    else:
-                        # Single video validation - check essential fields
-                        if not info.get('title') and not info.get('id'):
-                            return {'status': 'error', 'message': 'Video information is incomplete. Video may be private or deleted.'}
+                        # If we get here, extraction worked, now download
+                        print(f"Info extraction successful, proceeding with download")
+                        info = ydl.extract_info(url, download=True)
                         
-                        # Check for age restriction or other access issues
-                        if info.get('age_limit') and info.get('age_limit') > 0:
-                            return {'status': 'error', 'message': 'Age-restricted video cannot be downloaded'}
-                    
-                    # Now attempt the actual download
-                    info = ydl.extract_info(url, download=True)
-                    
-                    # Validate download result
-                    if info is None:
-                        return {'status': 'error', 'message': 'Download failed. Video may have become unavailable during download.'}
-                    
+                        if info is None:
+                            print(f"Download failed for attempt {attempt + 1}")
+                            continue
+                        
+                        # Success! Process the result
+                        return self.process_download_result(info, path, audio_only)
+                        
                 except yt_dlp.utils.DownloadError as e:
                     error_msg = str(e).lower()
-                    if any(phrase in error_msg for phrase in ["video unavailable", "this video is unavailable"]):
-                        return {'status': 'error', 'message': 'Video is unavailable or has been removed from YouTube'}
-                    elif any(phrase in error_msg for phrase in ["private video", "video is private"]):
-                        return {'status': 'error', 'message': 'Cannot download private videos'}
-                    elif "sign in to confirm your age" in error_msg:
-                        return {'status': 'error', 'message': 'Age-restricted video - cannot download without authentication'}
-                    elif "403" in error_msg:
-                        return {'status': 'error', 'message': 'Access denied - video may be region-blocked'}
-                    elif "404" in error_msg:
-                        return {'status': 'error', 'message': 'Video not found - it may have been deleted'}
-                    else:
-                        return {'status': 'error', 'message': f'YouTube download error: {str(e)}'}
-                
-                except Exception as extract_error:
-                    error_msg = str(extract_error)
-                    if "argument of type 'noneType' is not iterable" in error_msg:
-                        return {'status': 'error', 'message': 'Video data is corrupted or incomplete. Please try a different video.'}
-                    else:
-                        return {'status': 'error', 'message': f'Failed to process video: {error_msg}'}
-                
-                # Final validation after successful download
-                if not info or not isinstance(info, dict):
-                    return {'status': 'error', 'message': 'Download completed but result is invalid'}
-                
-                # Cache the download info
-                download_id = f"yt_{datetime.now().timestamp()}"
-                download_cache[download_id] = {
-                    'path': path,
-                    'info': info,
-                    'type': 'audio' if audio_only else 'video'
-                }
-                
-                content_type = 'audio' if audio_only else 'video'
-                
-                # Handle playlist vs single video with comprehensive null checks
-                if 'entries' in info and info.get('entries') is not None:
-                    entries = info.get('entries', [])
+                    print(f"Download error in attempt {attempt + 1}: {error_msg}")
+                    last_error = e
                     
-                    # Final filter for valid entries
-                    valid_entries = []
-                    for entry in entries:
-                        if entry is not None and isinstance(entry, dict):
-                            title = entry.get('title')
-                            if title is not None and str(title).strip():
-                                valid_entries.append(entry)
+                    # Don't retry for certain errors
+                    if any(fatal in error_msg for fatal in ['copyright', 'terminated', 'suspended']):
+                        break
                     
-                    if not valid_entries:
-                        return {'status': 'error', 'message': 'Playlist downloaded but no valid video titles found'}
+                    # Add delay between attempts
+                    if attempt < 4:  # Not the last attempt
+                        time.sleep(2)
+                    continue
                     
-                    titles = [entry.get('title', 'Unknown Title') for entry in valid_entries]
-                    
-                    return {
-                        'status': 'success',
-                        'message': f'Downloaded {len(titles)} {content_type}s from playlist',
-                        'titles': titles[:5],
-                        'type': f'playlist_{content_type}',
-                        'download_id': download_id
-                    }
-                else:
-                    # Single video with comprehensive validation
-                    title = info.get('title')
-                    uploader = info.get('uploader')
-                    
-                    # Ensure we have at least basic information
-                    if title is None or not str(title).strip():
-                        title = f"Video_{info.get('id', 'Unknown')}"
-                    
-                    if uploader is None or not str(uploader).strip():
-                        uploader = 'Unknown Channel'
-                    
-                    return {
-                        'status': 'success',
-                        'message': f'YouTube {content_type} downloaded successfully!',
-                        'title': str(title),
-                        'uploader': str(uploader),
-                        'type': content_type,
-                        'download_id': download_id
-                    }
-                    
-        except Exception as e:
-            error_msg = str(e)
-            if "argument of type 'NoneType' is not iterable" in error_msg:
-                return {'status': 'error', 'message': 'Video contains incomplete data. This may happen with private videos, deleted videos, or videos with restricted access.'}
-            elif "Video unavailable" in error_msg:
-                return {'status': 'error', 'message': 'Video is unavailable or has been removed from YouTube'}
-            elif "Private video" in error_msg:
-                return {'status': 'error', 'message': 'Cannot download private videos'}
-            elif "Sign in to confirm your age" in error_msg:
-                return {'status': 'error', 'message': 'Age-restricted video - cannot download without authentication'}
-            elif "HTTP Error 403" in error_msg:
-                return {'status': 'error', 'message': 'Access denied - video may be region-blocked or private'}
-            elif "HTTP Error 404" in error_msg:
-                return {'status': 'error', 'message': 'Video not found - it may have been deleted'}
+                except Exception as e:
+                    print(f"General error in attempt {attempt + 1}: {str(e)}")
+                    last_error = e
+                    continue
+            
+            # If all attempts failed, return appropriate error
+            if last_error:
+                return self.handle_download_error(last_error)
             else:
-                return {'status': 'error', 'message': f'Unexpected error: {error_msg}'}
+                return {'status': 'error', 'message': 'All extraction attempts failed. Video may be permanently unavailable.'}
+                
+        except Exception as e:
+            return {'status': 'error', 'message': f'Unexpected error during download: {str(e)}'}
+    
+    def validate_extracted_info(self, info):
+        """Validate extracted info structure"""
+        if not isinstance(info, dict):
+            return False
+        
+        # Check for playlist
+        if 'entries' in info:
+            entries = info.get('entries')
+            if entries is None:
+                return False
+            
+            # Filter valid entries
+            valid_entries = []
+            for entry in entries:
+                if entry is not None and isinstance(entry, dict):
+                    if entry.get('title') is not None or entry.get('id') is not None:
+                        valid_entries.append(entry)
+            
+            if not valid_entries:
+                return False
+            
+            # Update with valid entries
+            info['entries'] = valid_entries
+            return True
+        else:
+            # Single video validation
+            return (info.get('title') is not None or info.get('id') is not None)
+    
+    def process_download_result(self, info, path, audio_only):
+        """Process successful download result"""
+        download_id = f"yt_{datetime.now().timestamp()}"
+        download_cache[download_id] = {
+            'path': path,
+            'info': info,
+            'type': 'audio' if audio_only else 'video'
+        }
+        
+        content_type = 'audio' if audio_only else 'video'
+        
+        # Handle playlist vs single video
+        if 'entries' in info and info.get('entries') is not None:
+            entries = info.get('entries', [])
+            
+            # Filter valid entries
+            valid_entries = []
+            for entry in entries:
+                if entry is not None and isinstance(entry, dict):
+                    title = entry.get('title')
+                    if title is not None and str(title).strip():
+                        valid_entries.append(entry)
+            
+            if not valid_entries:
+                return {'status': 'error', 'message': 'Playlist processed but no valid videos found'}
+            
+            titles = [entry.get('title', 'Unknown Title') for entry in valid_entries]
+            
+            return {
+                'status': 'success',
+                'message': f'Successfully downloaded {len(titles)} {content_type}s from playlist!',
+                'titles': titles[:5],
+                'type': f'playlist_{content_type}',
+                'download_id': download_id
+            }
+        else:
+            # Single video
+            title = info.get('title')
+            uploader = info.get('uploader')
+            
+            if title is None or not str(title).strip():
+                title = f"Video_{info.get('id', 'Unknown')}"
+            
+            if uploader is None or not str(uploader).strip():
+                uploader = 'Unknown Channel'
+            
+            return {
+                'status': 'success',
+                'message': f'Successfully downloaded {content_type} with bypass techniques!',
+                'title': str(title),
+                'uploader': str(uploader),
+                'type': content_type,
+                'download_id': download_id
+            }
+    
+    def handle_download_error(self, error):
+        """Handle download errors with specific messages"""
+        error_msg = str(error).lower()
+        
+        if any(phrase in error_msg for phrase in ["video unavailable", "this video is unavailable"]):
+            return {'status': 'error', 'message': 'Video unavailable even with bypass attempts. May be permanently deleted.'}
+        elif any(phrase in error_msg for phrase in ["private video", "video is private"]):
+            return {'status': 'error', 'message': 'Private video - cannot bypass privacy restrictions.'}
+        elif "sign in to confirm your age" in error_msg:
+            return {'status': 'error', 'message': 'Age-restricted content - tried bypass but failed.'}
+        elif any(phrase in error_msg for phrase in ["403", "forbidden"]):
+            return {'status': 'error', 'message': 'Access forbidden - tried geo-bypass but failed.'}
+        elif "404" in error_msg:
+            return {'status': 'error', 'message': 'Video not found - may be deleted or URL is incorrect.'}
+        elif any(phrase in error_msg for phrase in ["copyright", "terminated", "suspended"]):
+            return {'status': 'error', 'message': 'Video removed due to copyright/terms violation.'}
+        elif "region" in error_msg or "country" in error_msg:
+            return {'status': 'error', 'message': 'Region-blocked content - geo-bypass failed.'}
+        else:
+            return {'status': 'error', 'message': f'Download failed after multiple bypass attempts: {str(error)}'}
+    
+    def download_generic_content(self, url, path, audio_only=False):
+        """Download from other platforms with bypass techniques"""
+        try:
+            base_opts = self.get_bypass_options(url)
+            
+            if audio_only:
+                base_opts.update({
+                    'outtmpl': os.path.join(path, '%(title)s.%(ext)s'),
+                    'format': 'bestaudio/best',
+                    'extractaudio': True,
+                    'audioformat': 'mp3' if self.check_ffmpeg_availability() else 'best',
+                })
+            else:
+                base_opts.update({
+                    'outtmpl': os.path.join(path, '%(title)s.%(ext)s'),
+                    'format': 'best[height<=720]/best',
+                })
+            
+            # Try multiple configurations
+            for attempt, alt_config in enumerate(self.try_alternative_extractors(url)):
+                try:
+                    ydl_opts = {**base_opts, **alt_config}
+                    
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        info = ydl.extract_info(url, download=False)
+                        
+                        if info is None:
+                            continue
+                        
+                        info = ydl.extract_info(url, download=True)
+                        
+                        if not info:
+                            continue
+                        
+                        # Success
+                        download_id = f"gen_{datetime.now().timestamp()}"
+                        download_cache[download_id] = {
+                            'path': path,
+                            'info': info,
+                            'type': 'audio' if audio_only else 'video'
+                        }
+                        
+                        content_type = 'audio' if audio_only else 'media'
+                        title = info.get('title', 'Unknown') if info else 'Unknown'
+                        extractor = info.get('extractor', 'Unknown') if info else 'Unknown'
+                        
+                        return {
+                            'status': 'success',
+                            'message': f'{content_type.title()} downloaded successfully with bypass!',
+                            'title': title,
+                            'extractor': extractor,
+                            'type': content_type,
+                            'download_id': download_id
+                        }
+                        
+                except Exception as e:
+                    if attempt < 4:
+                        time.sleep(1)
+                    continue
+            
+            return {'status': 'error', 'message': 'All bypass attempts failed for this platform'}
+                
+        except Exception as e:
+            return {'status': 'error', 'message': f'Platform download error: {str(e)}'}
     
     def download_instagram_content(self, url, path):
         """Download Instagram content with Vercel optimization"""
@@ -291,86 +472,6 @@ class VercelCompatibleDownloader:
                 
         except Exception as e:
             return {'status': 'error', 'message': f'Instagram error: {str(e)}'}
-    
-    def download_generic_content(self, url, path, audio_only=False):
-        """Download from supported platforms with Vercel optimization"""
-        try:
-            if audio_only:
-                ydl_opts = {
-                    'outtmpl': os.path.join(path, '%(title)s.%(ext)s'),
-                    'format': 'bestaudio/best',
-                    'extractaudio': True,
-                    'audioformat': 'mp3' if self.check_ffmpeg_availability() else 'best',
-                    'no_warnings': True,
-                    'socket_timeout': 30,
-                    'retries': 3,
-                    'ignoreerrors': True,
-                }
-            else:
-                ydl_opts = {
-                    'outtmpl': os.path.join(path, '%(title)s.%(ext)s'),
-                    'format': 'best[height<=720]/best',
-                    'no_warnings': True,
-                    'socket_timeout': 30,
-                    'retries': 3,
-                    'ignoreerrors': True,
-                }
-            
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                # Extract info first to validate
-                try:
-                    info = ydl.extract_info(url, download=False)
-                    if info is None:
-                        return {'status': 'error', 'message': 'Could not extract media information'}
-                    
-                    # Download with validated info
-                    info = ydl.extract_info(url, download=True)
-                    
-                except Exception as extract_error:
-                    return {'status': 'error', 'message': f'Failed to extract media info: {str(extract_error)}'}
-                
-                if not info:
-                    return {'status': 'error', 'message': 'No media information available'}
-                
-                download_id = f"gen_{datetime.now().timestamp()}"
-                download_cache[download_id] = {
-                    'path': path,
-                    'info': info,
-                    'type': 'audio' if audio_only else 'video'
-                }
-                
-                content_type = 'audio' if audio_only else 'media'
-                title = info.get('title', 'Unknown') if info else 'Unknown'
-                extractor = info.get('extractor', 'Unknown') if info else 'Unknown'
-                
-                return {
-                    'status': 'success',
-                    'message': f'{content_type.title()} downloaded successfully!',
-                    'title': title,
-                    'extractor': extractor,
-                    'type': content_type,
-                    'download_id': download_id
-                }
-                
-        except Exception as e:
-            error_msg = str(e)
-            if "argument of type 'NoneType' is not iterable" in error_msg:
-                return {'status': 'error', 'message': 'Media not available or private. Please check the URL.'}
-            else:
-                return {'status': 'error', 'message': f'Download error: {error_msg}'}
-    
-    def extract_instagram_shortcode(self, url):
-        """Extract shortcode from Instagram URL"""
-        patterns = [
-            r'/p/([^/?]+)',
-            r'/reel/([^/?]+)',
-            r'/tv/([^/?]+)'
-        ]
-        for pattern in patterns:
-            match = re.search(pattern, url)
-            if match:
-                return match.group(1)
-        return None
     
     def download_content(self, url, audio_only=False):
         """Main download function optimized for Vercel"""
