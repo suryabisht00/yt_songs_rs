@@ -156,17 +156,26 @@ class MediaDownloader {
                 this.startDownloadCountdown();
                 setTimeout(() => this.refreshDownloads(), 1000);
             } else {
-                // Enhanced error messages for cloud deployment
+                // Enhanced error messages with better YouTube handling
                 let errorMessage = result.message;
-                if (errorMessage.includes('geo-blocked') || errorMessage.includes('region')) {
+                
+                if (errorMessage.includes('not available') || errorMessage.includes('unavailable')) {
+                    errorMessage = `❌ ${errorMessage}\n\n💡 Common causes:\n• Video was removed or made private\n• Content is geo-restricted\n• Age-restricted content\n• Live stream not yet ended`;
+                } else if (errorMessage.includes('geo-blocked') || errorMessage.includes('region')) {
                     errorMessage = `🌍 ${errorMessage}\n\n💡 Try: Different content or wait for server region changes`;
                 } else if (errorMessage.includes('timeout') || errorMessage.includes('connection')) {
                     errorMessage = `⏱️ ${errorMessage}\n\n💡 Try: Refresh page and try again`;
                 } else if (errorMessage.includes('private') || errorMessage.includes('restricted')) {
                     errorMessage = `🔒 ${errorMessage}\n\n💡 Try: Public content only`;
+                } else if (errorMessage.includes('age-restricted')) {
+                    errorMessage = `🔞 ${errorMessage}\n\n💡 Age-restricted content requires authentication`;
+                } else if (errorMessage.includes('copyright') || errorMessage.includes('removed')) {
+                    errorMessage = `📋 ${errorMessage}\n\n💡 Content was removed due to policy violations`;
+                } else if (errorMessage.includes('live') && errorMessage.includes('stream')) {
+                    errorMessage = `🔴 ${errorMessage}\n\n💡 Wait for live stream to end before downloading`;
                 }
                 
-                this.showStatus(statusDiv, `❌ ${errorMessage}`, 'error');
+                this.showStatus(statusDiv, errorMessage, 'error');
             }
         } catch (error) {
             if (error.name === 'AbortError') {
@@ -411,11 +420,21 @@ class MediaDownloader {
             return;
         }
         
-        if (url.includes('instagram.com')) {
+        if (url.includes('youtube.com') || url.includes('youtu.be')) {
+            // Check for common YouTube issues
+            if (url.includes('/shorts/')) {
+                this.showStatus(statusDiv, '🎬 Detected: YouTube Shorts', 'loading');
+            } else if (url.includes('playlist')) {
+                this.showStatus(statusDiv, '📁 Detected: YouTube Playlist', 'loading');
+            } else if (url.includes('/live/')) {
+                this.showStatus(statusDiv, '🔴 Detected: YouTube Live Stream (may not be downloadable)', 'loading');
+            } else {
+                this.showStatus(statusDiv, '🎬 Detected: YouTube Video', 'loading');
+            }
+        } else if (url.includes('instagram.com')) {
             this.showStatus(statusDiv, '⚠️ Note: Audio extraction not supported for Instagram', 'loading');
         } else {
             const platforms = {
-                'youtube.com': 'YouTube', 'youtu.be': 'YouTube',
                 'tiktok.com': 'TikTok', 'twitter.com': 'Twitter', 'x.com': 'Twitter',
                 'facebook.com': 'Facebook', 'reddit.com': 'Reddit'
             };

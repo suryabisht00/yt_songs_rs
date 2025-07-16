@@ -94,6 +94,21 @@ class UniversalDownloader:
         
         print("🚀 Render environment configured")
 
+    def check_ffmpeg_availability(self):
+        """Check if FFmpeg is available for audio conversion"""
+        try:
+            import subprocess
+            result = subprocess.run(['ffmpeg', '-version'], 
+                                  capture_output=True, 
+                                  text=True, 
+                                  timeout=5)
+            return result.returncode == 0
+        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+            return False
+        except Exception as e:
+            print(f"⚠️ FFmpeg check error: {e}")
+            return False
+
     def detect_platform(self, url):
         """Detect the platform from URL"""
         url = url.lower()
@@ -251,7 +266,7 @@ class UniversalDownloader:
             print(f"❌ Error cleaning up subtitle files: {e}")
     
     def download_youtube_content(self, url, path, audio_only=False):
-        """Download YouTube videos, shorts, playlists with Render compatibility"""
+        """Download YouTube videos, shorts, playlists with enhanced error handling"""
         try:
             # Enhanced options for Render environment
             base_opts = {
@@ -304,13 +319,43 @@ class UniversalDownloader:
             
             print(f"🎵 Audio extraction settings: FFmpeg available = {ffmpeg_available if audio_only else 'N/A'}")
             
-            # Enhanced error handling for Render
+            # Enhanced error handling for YouTube
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    # First, try to extract info without downloading to check availability
+                    try:
+                        info = ydl.extract_info(url, download=False)
+                        if not info:
+                            return {'status': 'error', 'message': 'Failed to extract video information. The video may be unavailable, private, or deleted.'}
+                    except Exception as info_error:
+                        error_msg = str(info_error).lower()
+                        print(f"❌ YouTube info extraction error: {info_error}")
+                        
+                        # Enhanced error detection
+                        if any(keyword in error_msg for keyword in ['unavailable', "isn't available", 'not available']):
+                            return {'status': 'error', 'message': 'This YouTube video is not available. It may have been removed, made private, or is restricted in your region.'}
+                        elif any(keyword in error_msg for keyword in ['private', 'requires sign', 'sign in']):
+                            return {'status': 'error', 'message': 'This YouTube video is private or requires sign-in to access.'}
+                        elif any(keyword in error_msg for keyword in ['age-restricted', 'age restricted', 'confirm your age']):
+                            return {'status': 'error', 'message': 'This YouTube video is age-restricted and cannot be downloaded without authentication.'}
+                        elif any(keyword in error_msg for keyword in ['geo', 'country', 'region', 'blocked']):
+                            return {'status': 'error', 'message': 'This YouTube video is geo-blocked and not available in the server region.'}
+                        elif any(keyword in error_msg for keyword in ['copyright', 'removed', 'violated']):
+                            return {'status': 'error', 'message': 'This YouTube video has been removed due to copyright or policy violations.'}
+                        elif 'live' in error_msg and 'stream' in error_msg:
+                            return {'status': 'error', 'message': 'Live streams cannot be downloaded. Please wait until the stream ends.'}
+                        elif any(keyword in error_msg for keyword in ['format', 'no suitable']):
+                            return {'status': 'error', 'message': 'No suitable video format found for download.'}
+                        elif any(keyword in error_msg for keyword in ['timeout', 'connection', 'network']):
+                            return {'status': 'error', 'message': 'Network timeout or connection error. Please try again later.'}
+                        else:
+                            return {'status': 'error', 'message': f'YouTube video unavailable: {str(info_error)}'}
+                    
+                    # Now proceed with download
                     info = ydl.extract_info(url, download=True)
                     
                     if not info:
-                        return {'status': 'error', 'message': 'Failed to extract video information. The video may be private, deleted, or geo-blocked.'}
+                        return {'status': 'error', 'message': 'Download failed. The video may have become unavailable during download.'}
                     
                     content_type = 'audio' if audio_only else 'video'
                     
@@ -342,25 +387,28 @@ class UniversalDownloader:
                         }
                         
             except Exception as e:
-                error_msg = str(e)
-                print(f"❌ YouTube download error: {error_msg}")
+                error_msg = str(e).lower()
+                print(f"❌ YouTube download error: {e}")
                 
-                # Enhanced error messages for Render
-                if any(keyword in error_msg.lower() for keyword in ['private', 'unavailable', 'blocked', 'restricted']):
-                    if 'geo' in error_msg.lower() or 'country' in error_msg.lower():
-                        return {'status': 'error', 'message': 'This YouTube video is geo-blocked and not available in the server region.'}
-                    elif 'private' in error_msg.lower():
-                        return {'status': 'error', 'message': 'This YouTube video is private and cannot be downloaded.'}
-                    elif 'age' in error_msg.lower() and 'restricted' in error_msg.lower():
-                        return {'status': 'error', 'message': 'This YouTube video is age-restricted and cannot be downloaded without authentication.'}
-                    else:
-                        return {'status': 'error', 'message': 'This YouTube video is unavailable in your region or has been deleted.'}
-                elif 'format' in error_msg.lower():
+                # Enhanced error messages
+                if any(keyword in error_msg for keyword in ['unavailable', "isn't available", 'not available']):
+                    return {'status': 'error', 'message': 'This YouTube video is not available. It may have been removed, made private, or is restricted in your region.'}
+                elif any(keyword in error_msg for keyword in ['private', 'requires sign', 'sign in']):
+                    return {'status': 'error', 'message': 'This YouTube video is private or requires sign-in to access.'}
+                elif any(keyword in error_msg for keyword in ['age-restricted', 'age restricted', 'confirm your age']):
+                    return {'status': 'error', 'message': 'This YouTube video is age-restricted and cannot be downloaded without authentication.'}
+                elif any(keyword in error_msg for keyword in ['geo', 'country', 'region', 'blocked']):
+                    return {'status': 'error', 'message': 'This YouTube video is geo-blocked and not available in the server region.'}
+                elif any(keyword in error_msg for keyword in ['copyright', 'removed', 'violated']):
+                    return {'status': 'error', 'message': 'This YouTube video has been removed due to copyright or policy violations.'}
+                elif 'live' in error_msg and 'stream' in error_msg:
+                    return {'status': 'error', 'message': 'Live streams cannot be downloaded. Please wait until the stream ends.'}
+                elif any(keyword in error_msg for keyword in ['format', 'no suitable']):
                     return {'status': 'error', 'message': 'No suitable video format found for download.'}
-                elif 'timeout' in error_msg.lower() or 'connection' in error_msg.lower():
-                    return {'status': 'error', 'message': 'Download timeout or connection error. Please try again.'}
+                elif any(keyword in error_msg for keyword in ['timeout', 'connection', 'network']):
+                    return {'status': 'error', 'message': 'Network timeout or connection error. Please try again later.'}
                 else:
-                    return {'status': 'error', 'message': f'YouTube download failed: {error_msg}'}
+                    return {'status': 'error', 'message': f'YouTube download failed: {str(e)}'}
                     
         except Exception as e:
             return {'status': 'error', 'message': f'YouTube download failed: {str(e)}'}
