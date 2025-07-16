@@ -3,1309 +3,227 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rashmi's Personal Media Downloader ❤️</title>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
-        
-        :root {
-            --bg-primary: #0f0217;
-            --bg-secondary: #1a0b2e;
-            --bg-card: #2d1b3d;
-            --text-primary: #ffffff;
-            --text-secondary: #e4c7f0;
-            --text-muted: #b491c8;
-            --accent: #ff6b9d;
-            --accent-hover: #ff5588;
-            --success: #4ade80;
-            --error: #f87171;
-            --warning: #fbbf24;
-            --border: #7c3aed;
-            --border-light: #553c9a;
-            --glass: rgba(255, 107, 157, 0.1);
-            --glass-border: rgba(255, 107, 157, 0.2);
-            --romantic-pink: #ff99cc;
-            --romantic-purple: #cc99ff;
-        }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: 'Poppins', sans-serif;
-            background: linear-gradient(135deg, var(--bg-primary), var(--bg-secondary));
-            color: var(--text-primary);
-            line-height: 1.6;
-            font-weight: 400;
-            overflow-x: hidden;
-            min-height: 100vh;
-        }
-
-        .romantic-bg {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: 
-                radial-gradient(circle at 20% 30%, rgba(255, 107, 157, 0.2) 0%, transparent 50%),
-                radial-gradient(circle at 80% 70%, rgba(204, 153, 255, 0.2) 0%, transparent 50%),
-                radial-gradient(circle at 50% 50%, rgba(255, 153, 204, 0.15) 0%, transparent 50%);
-            pointer-events: none;
-            z-index: -1;
-            animation: romanticFloat 15s ease-in-out infinite;
-        }
-
-        @keyframes romanticFloat {
-            0%, 100% { transform: translateY(0px) rotate(0deg); }
-            50% { transform: translateY(-20px) rotate(1deg); }
-        }
-
-        .floating-hearts {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-            z-index: -1;
-            overflow: hidden;
-        }
-
-        .heart {
-            position: absolute;
-            font-size: 1.5rem;
-            color: var(--romantic-pink);
-            opacity: 0.1;
-            animation: heartFloat 12s linear infinite;
-        }
-
-        .heart:nth-child(1) { left: 10%; animation-delay: 0s; }
-        .heart:nth-child(2) { left: 20%; animation-delay: 2s; }
-        .heart:nth-child(3) { left: 30%; animation-delay: 4s; }
-        .heart:nth-child(4) { left: 40%; animation-delay: 6s; }
-        .heart:nth-child(5) { left: 50%; animation-delay: 8s; }
-        .heart:nth-child(6) { left: 60%; animation-delay: 10s; }
-        .heart:nth-child(7) { left: 70%; animation-delay: 12s; }
-        .heart:nth-child(8) { left: 80%; animation-delay: 14s; }
-        .heart:nth-child(9) { left: 90%; animation-delay: 16s; }
-
-        @keyframes heartFloat {
-            0% {
-                transform: translateY(100vh) rotate(0deg) scale(0.8);
-                opacity: 0;
-            }
-            10% {
-                opacity: 0.3;
-            }
-            90% {
-                opacity: 0.3;
-            }
-            100% {
-                transform: translateY(-100px) rotate(360deg) scale(1.2);
-                opacity: 0;
-            }
-        }
-
-        .container {
-            max-width: 1000px;
-            margin: 0 auto;
-            padding: 2rem;
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .header {
-            text-align: center;
-            margin-bottom: 3rem;
-            padding: 2rem;
-            background: var(--glass);
-            backdrop-filter: blur(20px);
-            border: 1px solid var(--glass-border);
-            border-radius: 2rem;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .header::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 3px;
-            background: linear-gradient(90deg, var(--accent), var(--romantic-purple), var(--accent));
-        }
-
-        .photo-section {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 2rem;
-            margin-bottom: 2rem;
-            flex-wrap: wrap;
-        }
-
-        .photo-frame {
-            width: 120px;
-            height: 120px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, var(--accent), var(--romantic-purple));
-            padding: 4px;
-            position: relative;
-            animation: photoGlow 3s ease-in-out infinite alternate;
-        }
-
-        .photo-frame img {
-            width: 100%;
-            height: 100%;
-            border-radius: 50%;
-            object-fit: cover;
-            background: var(--bg-card);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 3rem;
-            color: var(--romantic-pink);
-        }
-
-        .photo-placeholder {
-            width: 100%;
-            height: 100%;
-            border-radius: 50%;
-            background: var(--bg-card);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 3rem;
-            color: var(--romantic-pink);
-        }
-
-        @keyframes photoGlow {
-            0% { box-shadow: 0 0 20px rgba(255, 107, 157, 0.4); }
-            100% { box-shadow: 0 0 30px rgba(255, 107, 157, 0.8); }
-        }
-
-        .logo {
-            font-size: 2.5rem;
-            font-weight: 700;
-            background: linear-gradient(135deg, var(--accent), var(--romantic-purple));
-            background-clip: text;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin-bottom: 0.5rem;
-            letter-spacing: -0.02em;
-        }
-
-        .tagline {
-            font-size: 1.2rem;
-            color: var(--text-secondary);
-            font-weight: 500;
-            margin-bottom: 1rem;
-        }
-
-        .love-message {
-            font-size: 1rem;
-            color: var(--romantic-pink);
-            font-style: italic;
-            margin-top: 1rem;
-        }
-
-        .platforms {
-            display: flex;
-            justify-content: center;
-            flex-wrap: wrap;
-            gap: 1rem;
-            margin: 2rem 0;
-        }
-
-        .platform-tag {
-            background: var(--glass);
-            backdrop-filter: blur(20px);
-            border: 1px solid var(--glass-border);
-            color: var(--text-secondary);
-            padding: 0.75rem 1.5rem;
-            border-radius: 2rem;
-            font-size: 0.9rem;
-            font-weight: 500;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .platform-tag:hover {
-            background: var(--accent);
-            color: white;
-            transform: translateY(-3px) scale(1.05);
-            box-shadow: 0 15px 30px rgba(255, 107, 157, 0.3);
-        }
-
-        .main-content {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            gap: 2rem;
-        }
-
-        .card {
-            background: var(--glass);
-            backdrop-filter: blur(20px);
-            border: 1px solid var(--glass-border);
-            border-radius: 2rem;
-            padding: 2.5rem;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            position: relative;
-            overflow: hidden;
-        }
-
-        .card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 2px;
-            background: linear-gradient(90deg, var(--accent), var(--romantic-purple));
-        }
-
-        .card:hover {
-            border-color: var(--accent);
-            background: rgba(255, 107, 157, 0.15);
-            transform: translateY(-2px);
-        }
-
-        .tabs {
-            display: flex;
-            background: var(--bg-card);
-            border-radius: 1.5rem;
-            padding: 0.5rem;
-            margin-bottom: 2rem;
-            border: 1px solid var(--border-light);
-        }
-
-        .tab {
-            flex: 1;
-            background: transparent;
-            border: none;
-            color: var(--text-secondary);
-            padding: 1rem 1.5rem;
-            border-radius: 1rem;
-            font-weight: 600;
-            font-size: 1rem;
-            cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            position: relative;
-        }
-
-        .tab.active {
-            background: linear-gradient(135deg, var(--accent), var(--romantic-purple));
-            color: white;
-            transform: scale(1.02);
-            box-shadow: 0 10px 20px rgba(255, 107, 157, 0.3);
-        }
-
-        .tab:not(.active):hover {
-            color: var(--text-primary);
-            background: var(--glass);
-        }
-
-        .tab-content {
-            display: none;
-            animation: fadeIn 0.5s ease-out;
-        }
-
-        .tab-content.active {
-            display: block;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(15px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .input-group {
-            margin-bottom: 2rem;
-        }
-
-        .input-label {
-            display: block;
-            margin-bottom: 1rem;
-            color: var(--text-primary);
-            font-weight: 600;
-            font-size: 1rem;
-        }
-
-        .input-field {
-            width: 100%;
-            background: var(--bg-card);
-            border: 2px solid var(--border-light);
-            border-radius: 1.5rem;
-            padding: 1.25rem 1.5rem;
-            color: var(--text-primary);
-            font-size: 1rem;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            font-family: inherit;
-        }
-
-        .input-field:focus {
-            outline: none;
-            border-color: var(--accent);
-            background: var(--bg-secondary);
-            box-shadow: 0 0 0 4px rgba(255, 107, 157, 0.2);
-        }
-
-        .input-field::placeholder {
-            color: var(--text-muted);
-        }
-
-        .textarea {
-            min-height: 140px;
-            resize: vertical;
-            font-family: inherit;
-        }
-
-        .btn {
-            background: linear-gradient(135deg, var(--accent), var(--romantic-purple));
-            color: white;
-            border: none;
-            border-radius: 1.5rem;
-            padding: 1.25rem 2.5rem;
-            font-size: 1.1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            display: inline-flex;
-            align-items: center;
-            gap: 0.75rem;
-            position: relative;
-            overflow: hidden;
-            font-family: inherit;
-        }
-
-        .btn:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 20px 40px rgba(255, 107, 157, 0.4);
-        }
-
-        .btn:active {
-            transform: translateY(-1px);
-        }
-
-        .btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
-        }
-
-        .btn-secondary {
-            background: var(--bg-card);
-            color: var(--text-primary);
-            border: 2px solid var(--border);
-        }
-
-        .btn-secondary:hover {
-            background: var(--border-light);
-            box-shadow: 0 15px 30px rgba(124, 58, 237, 0.3);
-        }
-
-        .btn-danger {
-            background: linear-gradient(135deg, var(--error), #dc2626);
-        }
-
-        .btn-danger:hover {
-            box-shadow: 0 20px 40px rgba(248, 113, 113, 0.4);
-        }
-
-        .download-options {
-            display: flex;
-            gap: 1.5rem;
-            margin-top: 1rem;
-        }
-
-        .option-item {
-            flex: 1;
-            cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .option-item input[type="radio"] {
-            display: none;
-        }
-
-        .option-text {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-            padding: 1.5rem;
-            background: var(--bg-card);
-            border: 2px solid var(--border-light);
-            border-radius: 1.5rem;
-            font-weight: 600;
-            color: var(--text-secondary);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .option-item input[type="radio"]:checked + .option-text {
-            background: linear-gradient(135deg, var(--accent), var(--romantic-purple));
-            color: white;
-            border-color: var(--accent);
-            transform: scale(1.02);
-            box-shadow: 0 15px 30px rgba(255, 107, 157, 0.3);
-        }
-
-        .option-text:hover {
-            border-color: var(--accent);
-            background: var(--glass);
-        }
-
-        .option-icon {
-            font-size: 1.5rem;
-            min-width: 1.5rem;
-        }
-
-        /* Downloads Section Styles */
-        .downloads-section {
-            background: var(--glass);
-            backdrop-filter: blur(20px);
-            border: 1px solid var(--glass-border);
-            border-radius: 2rem;
-            padding: 2.5rem;
-            margin-bottom: 2rem;
-            position: relative;
-        }
-
-        .downloads-section::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 2px;
-            background: linear-gradient(90deg, var(--accent), var(--romantic-purple));
-        }
-
-        .downloads-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 2rem;
-            flex-wrap: wrap;
-            gap: 1rem;
-        }
-
-        .downloads-title {
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: var(--text-primary);
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .downloads-actions {
-            display: flex;
-            gap: 1rem;
-        }
-
-        .btn-small {
-            padding: 0.75rem 1.5rem;
-            font-size: 0.9rem;
-            border-radius: 1rem;
-        }
-
-        .downloads-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 1.5rem;
-        }
-
-        .download-item {
-            background: var(--bg-card);
-            border: 2px solid var(--border-light);
-            border-radius: 1.5rem;
-            padding: 2rem;
-            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-            position: relative;
-            overflow: hidden;
-        }
-
-        .download-item:hover {
-            transform: translateY(-5px) scale(1.02);
-            border-color: var(--accent);
-            box-shadow: 0 25px 50px rgba(255, 107, 157, 0.3);
-        }
-
-        .download-item::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 3px;
-            background: linear-gradient(90deg, var(--accent), var(--romantic-purple));
-        }
-
-        .download-timer {
-            background: rgba(251, 191, 36, 0.1);
-            border: 1px solid var(--warning);
-            border-radius: 1rem;
-            padding: 0.75rem 1rem;
-            margin-top: 1rem;
-            font-size: 0.9rem;
-            color: var(--warning);
-            text-align: center;
-            font-weight: 600;
-        }
-
-        .download-timer.expired {
-            background: rgba(248, 113, 113, 0.1);
-            border-color: var(--error);
-            color: var(--error);
-        }
-
-        .download-timer.warning {
-            background: rgba(251, 191, 36, 0.2);
-            animation: pulse 1s infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.7; }
-        }
-
-        .countdown-display {
-            font-family: 'Courier New', monospace;
-            font-size: 1.1rem;
-            font-weight: bold;
-        }
-
-        .auto-delete-notice {
-            background: rgba(251, 191, 36, 0.1);
-            border: 1px solid var(--warning);
-            border-radius: 1rem;
-            padding: 1rem;
-            margin-top: 1rem;
-            color: var(--warning);
-            text-align: center;
-            font-size: 0.9rem;
-        }
-
-        @media (max-width: 768px) {
-            .container {
-                padding: 1rem;
-            }
-
-            .logo {
-                font-size: 2rem;
-            }
-
-            .card {
-                padding: 1.5rem;
-            }
-
-            .tabs {
-                flex-direction: column;
-                gap: 0.5rem;
-            }
-
-            .photo-section {
-                flex-direction: column;
-            }
-
-            .photo-frame {
-                width: 100px;
-                height: 100px;
-            }
-
-            .downloads-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .download-options {
-                flex-direction: column;
-            }
-
-            .downloads-actions {
-                flex-direction: column;
-            }
-        }
-
-        /* Scrollbar styling */
-        ::-webkit-scrollbar {
-            width: 10px;
-        }
-
-        ::-webkit-scrollbar-track {
-            background: var(--bg-secondary);
-        }
-
-        ::-webkit-scrollbar-thumb {
-            background: var(--accent);
-            border-radius: 5px;
-        }
-
-        ::-webkit-scrollbar-thumb:hover {
-            background: var(--accent-hover);
-        }
-    </style>
+    <title>Universal Media Downloader</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-    <div class="romantic-bg"></div>
-    
-    <!-- Floating Hearts Background -->
-    <div class="floating-hearts">
-        <div class="heart">💖</div>
-        <div class="heart">💕</div>
-        <div class="heart">💗</div>
-        <div class="heart">💝</div>
-        <div class="heart">💖</div>
-        <div class="heart">💕</div>
-        <div class="heart">💗</div>
-        <div class="heart">💝</div>
-        <div class="heart">💖</div>
+    <div class="animated-bg">
+        <div class="floating-particles"></div>
+        <div class="gradient-orbs"></div>
     </div>
-    
     <div class="container">
         <header class="header">
-            <div class="photo-section">
-                <div class="photo-frame">
-                    <div class="photo-placeholder">👩‍💻</div>
-                </div>
-                <div style="text-align: center;">
-                    <h1 class="logo">For Rashmi ❤️</h1>
-                    <p class="tagline">Your Personal Media Downloader</p>
-                    <p class="love-message">"Made with love, just for you! 💕"</p>
-                </div>
-                <div class="photo-frame">
-                    <div class="photo-placeholder">💕</div>
-                </div>
-            </div>
-            
-            <div class="platforms">
-                <span class="platform-tag">
-                    <span>📺</span>
-                    YouTube
-                </span>
-                <span class="platform-tag">
-                    <span>📸</span>
-                    Instagram
-                </span>
-                <span class="platform-tag">
-                    <span>🐦</span>
-                    Twitter
-                </span>
-                <span class="platform-tag">
-                    <span>📘</span>
-                    Facebook
-                </span>
+            <div class="logo-section">
+                <span class="logo-icon icon-large">📱</span>
+                <h1 class="main-title">Universal Media Downloader</h1>
+                <p class="subtitle">Download from YouTube, Instagram, Twitter, Facebook, Reddit & more</p>
             </div>
         </header>
-
         <main class="main-content">
-            <div class="card">
-                <div class="tabs">
-                    <button class="tab active" onclick="switchTab('single')">Single Download</button>
-                    <button class="tab" onclick="switchTab('bulk')">Bulk Download</button>
-                </div>
-
-                <!-- Single Download -->
+            <section class="download-card">
+                <nav class="tab-navigation" aria-label="Download Mode">
+                    <button class="tab-btn active" data-tab="single" aria-selected="true" aria-controls="single-tab">
+                        <span class="tab-icon">📋</span>
+                        Single
+                    </button>
+                    <button class="tab-btn" data-tab="bulk" aria-selected="false" aria-controls="bulk-tab">
+                        <span class="tab-icon">📦</span>
+                        Bulk
+                    </button>
+                </nav>
                 <div id="single-tab" class="tab-content active">
-                    <div class="input-group">
-                        <label class="input-label">💕 Paste Your URL Here</label>
-                        <input 
-                            type="url" 
-                            id="single-url" 
-                            class="input-field" 
-                            placeholder="https://youtu.be/a0W5Lx-calM?si=1lstZ9Qo9XCKiAr6 or any social media URL..."
-                        />
+                    <div class="input-section">
+                        <label class="input-label" for="single-url">
+                            <span class="label-icon">🔗</span>
+                            Paste your URL here
+                        </label>
+                        <div class="input-wrapper">
+                            <input type="url" id="single-url" class="url-input"
+                                placeholder="Paste any supported media URL">
+                            <div class="input-animation"></div>
+                        </div>
                     </div>
-                    
-                    <div class="input-group">
-                        <label class="input-label">Choose Download Type</label>
-                        <div class="download-options">
-                            <label class="option-item">
+                    <div class="download-options">
+                        <div class="options-title">Choose download type:</div>
+                        <div class="option-cards">
+                            <label class="option-card">
                                 <input type="radio" name="single-type" value="video" checked>
-                                <span class="option-text">
+                                <div class="option-content">
                                     <span class="option-icon">🎬</span>
-                                    Video/Media
-                                </span>
+                                    <span class="option-text">Video/Media</span>
+                                </div>
+                                <div class="option-check"></div>
                             </label>
-                            <label class="option-item">
+                            <label class="option-card">
                                 <input type="radio" name="single-type" value="audio">
-                                <span class="option-text">
+                                <div class="option-content">
                                     <span class="option-icon">🎵</span>
-                                    Audio Only
-                                </span>
+                                    <span class="option-text">Audio Only</span>
+                                </div>
+                                <div class="option-check"></div>
                             </label>
                         </div>
                     </div>
-                    
-                    <button class="btn" onclick="downloadSingle()">
-                        <span id="single-spinner" class="spinner" style="display: none;"></span>
-                        <span id="single-text">💕 Download for Rashmi</span>
+                    <button class="download-btn" id="single-download-btn">
+                        <span class="btn-spinner"></span>
+                        <span class="btn-text">Continue</span>
+                        <span class="btn-icon">➡️</span>
                     </button>
-                    
-                    <div id="single-status"></div>
+                    <div id="single-status" class="status-container"></div>
                 </div>
-
-                <!-- Bulk Download -->
                 <div id="bulk-tab" class="tab-content">
-                    <div class="input-group">
-                        <label class="input-label">💕 Multiple URLs (one per line)</label>
-                        <textarea 
-                            id="bulk-urls" 
-                            class="input-field textarea" 
-                            placeholder="https://www.youtube.com/watch?v=example1&#10;https://www.instagram.com/p/example2/&#10;https://www.tiktok.com/@user/video/example3"
-                        ></textarea>
+                    <div class="input-section">
+                        <label class="input-label" for="bulk-urls">
+                            <span class="label-icon">📝</span>
+                            Multiple URLs (one per line)
+                        </label>
+                        <div class="textarea-wrapper">
+                            <textarea id="bulk-urls" class="url-textarea"
+                                placeholder="Paste multiple URLs, one per line"></textarea>
+                            <div class="textarea-animation"></div>
+                        </div>
                     </div>
-                    
-                    <div class="input-group">
-                        <label class="input-label">Choose Download Type</label>
-                        <div class="download-options">
-                            <label class="option-item">
+                    <div class="download-options">
+                        <div class="options-title">Choose download type:</div>
+                        <div class="option-cards">
+                            <label class="option-card">
                                 <input type="radio" name="bulk-type" value="video" checked>
-                                <span class="option-text">
+                                <div class="option-content">
                                     <span class="option-icon">🎬</span>
-                                    Video/Media
-                                </span>
+                                    <span class="option-text">Video/Media</span>
+                                </div>
+                                <div class="option-check"></div>
                             </label>
-                            <label class="option-item">
+                            <label class="option-card">
                                 <input type="radio" name="bulk-type" value="audio">
-                                <span class="option-text">
+                                <div class="option-content">
                                     <span class="option-icon">🎵</span>
-                                    Audio Only
-                                </span>
+                                    <span class="option-text">Audio Only</span>
+                                </div>
+                                <div class="option-check"></div>
                             </label>
                         </div>
                     </div>
-                    
-                    <button class="btn" onclick="downloadBulk()">
-                        <span id="bulk-spinner" class="spinner" style="display: none;"></span>
-                        <span id="bulk-text">💕 Download All for Rashmi</span>
+                    <button class="download-btn" id="bulk-download-btn">
+                        <span class="btn-spinner"></span>
+                        <span class="btn-text">Continue</span>
+                        <span class="btn-icon">➡️</span>
                     </button>
-                    
-                    <div id="bulk-status"></div>
+                    <div id="bulk-status" class="status-container"></div>
                 </div>
-            </div>
-
-            <!-- Downloads Section (moved above features) -->
-            <div class="downloads-section">
-                <div class="downloads-header">
-                    <h2 class="downloads-title">
-                        <span>📁</span>
-                        Rashmi's Downloads
+            </section>
+            <section class="downloads-section">
+                <div class="section-header">
+                    <h2 class="section-title">
+                        <span class="title-icon">📁</span>
+                        Your Downloads
                     </h2>
-                    <div class="downloads-actions">
-                        <button class="btn btn-secondary btn-small" onclick="refreshDownloads()">
-                            🔄 Refresh
+                    <div class="section-actions">
+                        <button class="action-btn refresh-btn" title="Refresh downloads">
+                            <span class="btn-icon">🔄</span>
+                            Refresh
                         </button>
-                        <button class="btn btn-danger btn-small" onclick="clearDownloads()">
-                            🗑️ Clear All
+                        <button class="action-btn delete-btn" title="Clear all downloads">
+                            <span class="btn-icon">🗑️</span>
+                            Clear All
+                        </button>
+                    </div>
+                    <div class="section-actions">
+                        <button class="download-btn download-all-btn" title="Download all files">
+                            <span class="btn-spinner"></span>
+                            <span class="btn-text">Download All</span>
+                            <span class="btn-icon">📦</span>
                         </button>
                     </div>
                 </div>
-                
-                <div id="downloads-list"></div>
-            </div>
-
-            <!-- Features Section -->
-            <div class="card">
-                <h2 style="margin-bottom: 2rem; font-weight: 700; color: var(--text-primary); text-align: center;">
-                    ✨ Special Features for Rashmi ✨
-                </h2>
-                <div class="features">
-                    <div class="feature">
+                <div id="downloads-list" class="downloads-grid"></div>
+            </section>
+            <section class="features-section">
+                <h2 class="features-title">✨ Features & Supported Platforms</h2>
+                <div class="features-grid">
+                    <div class="feature-card platform-feature" data-platform="youtube">
+                        <div class="feature-icon">📺</div>
+                        <h3 class="feature-title">YouTube</h3>
+                        <p class="feature-description">Videos, shorts, playlists & audio extraction</p>
+                    </div>
+                    <div class="feature-card platform-feature" data-platform="instagram">
+                        <div class="feature-icon">📸</div>
+                        <h3 class="feature-title">Instagram</h3>
+                        <p class="feature-description">Posts, stories, reels & IGTV videos</p>
+                    </div>
+                    <div class="feature-card platform-feature" data-platform="twitter">
+                        <div class="feature-icon">🐦</div>
+                        <h3 class="feature-title">Twitter</h3>
+                        <p class="feature-description">Videos, GIFs & media from tweets</p>
+                    </div>
+                    <div class="feature-card platform-feature" data-platform="facebook">
+                        <div class="feature-icon">📘</div>
+                        <h3 class="feature-title">Facebook</h3>
+                        <p class="feature-description">Videos, photos & public content</p>
+                    </div>
+                    <div class="feature-card platform-feature" data-platform="reddit">
+                        <div class="feature-icon">🔴</div>
+                        <h3 class="feature-title">Reddit</h3>
+                        <p class="feature-description">Videos, GIFs & media from posts</p>
+                    </div>
+                    <div class="feature-card">
                         <div class="feature-icon">🎯</div>
                         <h3 class="feature-title">Smart Detection</h3>
-                        <p class="feature-description">Automatically detects any social media platform</p>
+                        <p class="feature-description">Automatically detects media from any platform</p>
                     </div>
-                    <div class="feature">
+                    <div class="feature-card">
                         <div class="feature-icon">🎵</div>
-                        <h3 class="feature-title">Music Extraction</h3>
-                        <p class="feature-description">Convert videos to MP3 for your playlist</p>
+                        <h3 class="feature-title">Audio Extraction</h3>
+                        <p class="feature-description">Convert videos to high-quality MP3</p>
                     </div>
-                    <div class="feature">
-                        <div class="feature-icon">📱</div>
-                        <h3 class="feature-title">All Media Types</h3>
-                        <p class="feature-description">Photos, videos, stories, reels & more</p>
-                    </div>
-                    <div class="feature">
+                    <div class="feature-card">
                         <div class="feature-icon">📦</div>
                         <h3 class="feature-title">Bulk Downloads</h3>
-                        <p class="feature-description">Download multiple files at once</p>
+                        <p class="feature-description">Download multiple files simultaneously</p>
                     </div>
-                    <div class="feature">
+                    <div class="feature-card">
                         <div class="feature-icon">🔒</div>
-                        <h3 class="feature-title">Private & Secure</h3>
-                        <p class="feature-description">Your downloads stay completely private</p>
+                        <h3 class="feature-title">Privacy First</h3>
+                        <p class="feature-description">Your downloads remain completely private</p>
                     </div>
-                    <div class="feature">
-                        <div class="feature-icon">💖</div>
-                        <h3 class="feature-title">Made with Love</h3>
-                        <p class="feature-description">Specially crafted for Rashmi's needs</p>
+                    <div class="feature-card">
+                        <div class="feature-icon">⚡</div>
+                        <h3 class="feature-title">Lightning Fast</h3>
+                        <p class="feature-description">Optimized for speed and reliability</p>
                     </div>
                 </div>
-            </div>
+            </section>
         </main>
+        <footer class="legal-notice">
+            <div class="notice-container">
+                <div class="notice-icon">⚖️</div>
+                <h3 class="notice-title">Legal Notice & Disclaimer</h3>
+                <div class="notice-content">
+                    <p><strong>Educational Purpose Only:</strong> This tool is developed strictly for educational and research purposes to demonstrate web scraping and media downloading techniques.</p>
+                    <p><strong>User Responsibility:</strong> Users are solely responsible for ensuring their use of this tool complies with:</p>
+                    <ul>
+                        <li>Terms of Service of the respective platforms</li>
+                        <li>Copyright laws in their jurisdiction</li>
+                        <li>Fair use policies and regulations</li>
+                        <li>Local and international intellectual property laws</li>
+                    </ul>
+                    <p><strong>No Liability:</strong> The developer(s) of this tool:</p>
+                    <ul>
+                        <li>Do not encourage or endorse copyright infringement</li>
+                        <li>Are not responsible for any misuse of this tool</li>
+                        <li>Shall not be held liable for any legal consequences arising from its use</li>
+                        <li>Do not provide any warranties or guarantees</li>
+                    </ul>
+                    <p><strong>Content Ownership:</strong> All downloaded content remains the property of its original creators and copyright holders. Users should obtain proper permissions before downloading copyrighted material.</p>
+                    <p><strong>Recommendation:</strong> We strongly recommend downloading only content that you own, have explicit permission to download, or that falls under fair use provisions.</p>
+                    <p class="final-notice">By using this tool, you acknowledge that you have read, understood, and agree to this disclaimer and accept full responsibility for your actions.</p>
+                </div>
+            </div>
+        </footer>
     </div>
-
-    <script>
-        // Global timer management
-        let downloadTimers = {};
-        let refreshInterval = null;
-
-        // Add better error handling for network requests
-        async function makeRequest(url, options = {}) {
-            try {
-                console.log('Making request to:', url);
-                const response = await fetch(url, options);
-                
-                console.log('Response status:', response.status);
-                console.log('Response headers:', response.headers);
-                
-                // Check if response is OK
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-                
-                // Check if response is JSON
-                const contentType = response.headers.get('content-type');
-                if (!contentType || !contentType.includes('application/json')) {
-                    const text = await response.text();
-                    console.error('Expected JSON but got:', text);
-                    throw new Error(`Expected JSON but got: ${text.substring(0, 100)}...`);
-                }
-                
-                const data = await response.json();
-                console.log('Response data:', data);
-                return data;
-            } catch (error) {
-                console.error('Request failed:', error);
-                throw error;
-            }
-        }
-
-        // Tab switching (updated to remove downloads tab)
-        function switchTab(tabName) {
-            document.querySelectorAll('.tab-content').forEach(content => {
-                content.classList.remove('active');
-            });
-            
-            document.querySelectorAll('.tab').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            
-            document.getElementById(tabName + '-tab').classList.add('active');
-            event.target.classList.add('active');
-        }
-
-        // Download countdown management
-        function startDownloadCountdown() {
-            // Clear existing interval
-            if (refreshInterval) {
-                clearInterval(refreshInterval);
-            }
-            
-            // Start new interval for countdown updates
-            refreshInterval = setInterval(() => {
-                refreshDownloads();
-            }, 1000); // Update every second
-            
-            // Stop after 35 seconds (5 seconds buffer after 30s auto-delete)
-            setTimeout(() => {
-                if (refreshInterval) {
-                    clearInterval(refreshInterval);
-                    refreshInterval = null;
-                }
-            }, 35000);
-        }
-
-        // Single download with better error handling
-        async function downloadSingle() {
-            const url = document.getElementById('single-url').value.trim();
-            const statusDiv = document.getElementById('single-status');
-            const spinner = document.getElementById('single-spinner');
-            const buttonText = document.getElementById('single-text');
-            const button = document.querySelector('#single-tab .btn');
-            const audioOnly = document.querySelector('input[name="single-type"]:checked').value === 'audio';
-            
-            if (!url) {
-                showStatus(statusDiv, 'Please enter a valid URL', 'error');
-                return;
-            }
-            
-            // Check if audio is supported for this platform
-            if (audioOnly && url.toLowerCase().includes('instagram.com')) {
-                showStatus(statusDiv, '⚠️ Audio extraction not supported for Instagram', 'error');
-                return;
-            }
-            
-            // Loading state
-            spinner.style.display = 'block';
-            buttonText.textContent = audioOnly ? 'Extracting Audio...' : 'Downloading...';
-            button.disabled = true;
-            
-            try {
-                const result = await makeRequest('/download', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url, audio_only: audioOnly })
-                });
-                
-                if (result.status === 'success') {
-                    let message = `✅ ${result.message}`;
-                    if (result.title) message += `\n📝 ${result.title}`;
-                    if (result.platform) message += `\n🌐 ${result.platform}`;
-                    if (audioOnly) message += `\n🎵 Audio extracted as MP3`;
-                    
-                    // Add auto-delete notice
-                    if (result.auto_delete_seconds) {
-                        message += `\n\n⏰ Files will be auto-deleted in ${result.auto_delete_seconds} seconds if not downloaded`;
-                    }
-                    
-                    showStatus(statusDiv, message, 'success');
-                    document.getElementById('single-url').value = '';
-                    
-                    // Start countdown and refresh downloads
-                    startDownloadCountdown();
-                    setTimeout(() => refreshDownloads(), 1000);
-                } else {
-                    showStatus(statusDiv, `❌ ${result.message}`, 'error');
-                }
-            } catch (error) {
-                showStatus(statusDiv, `❌ ${error.message}`, 'error');
-            } finally {
-                spinner.style.display = 'none';
-                buttonText.textContent = audioOnly ? 'Extract Audio' : 'Download';
-                button.disabled = false;
-            }
-        }
-
-        // Enhanced bulk download with timer
-        async function downloadBulk() {
-            const urlsText = document.getElementById('bulk-urls').value.trim();
-            const statusDiv = document.getElementById('bulk-status');
-            const spinner = document.getElementById('bulk-spinner');
-            const buttonText = document.getElementById('bulk-text');
-            const button = document.querySelector('#bulk-tab .btn');
-            const audioOnly = document.querySelector('input[name="bulk-type"]:checked').value === 'audio';
-            
-            if (!urlsText) {
-                showStatus(statusDiv, 'Please enter at least one URL', 'error');
-                return;
-            }
-            
-            const urls = urlsText.split('\n').filter(url => url.trim());
-            
-            if (urls.length === 0) {
-                showStatus(statusDiv, 'Please enter valid URLs', 'error');
-                return;
-            }
-            
-            // Check for Instagram URLs if audio is selected
-            if (audioOnly) {
-                const instagramUrls = urls.filter(url => url.toLowerCase().includes('instagram.com'));
-                if (instagramUrls.length > 0) {
-                    showStatus(statusDiv, '⚠️ Audio extraction not supported for Instagram URLs', 'error');
-                    return;
-                }
-            }
-            
-            // Loading state
-            spinner.style.display = 'block';
-            buttonText.textContent = audioOnly ? `Extracting Audio from ${urls.length} URLs...` : `Processing ${urls.length} URLs...`;
-            button.disabled = true;
-            
-            try {
-                const result = await makeRequest('/bulk-download', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ urls, audio_only: audioOnly })
-                });
-                
-                if (result.status === 'success') {
-                    let message = `✅ ${result.message}`;
-                    if (audioOnly) message += ` (Audio extracted as MP3)`;
-                    message += `\n\n⏰ Files will be auto-deleted in 30 seconds if not downloaded\n\n`;
-                    
-                    result.results.forEach((res, index) => {
-                        const icon = res.status === 'success' ? '✅' : '❌';
-                        message += `${icon} URL ${index + 1}: ${res.message}\n`;
-                    });
-                    
-                    showStatus(statusDiv, message, 'success');
-                    document.getElementById('bulk-urls').value = '';
-                    
-                    // Start countdown and refresh downloads
-                    startDownloadCountdown();
-                    setTimeout(() => refreshDownloads(), 1000);
-                } else {
-                    showStatus(statusDiv, `❌ ${result.message}`, 'error');
-                }
-            } catch (error) {
-                showStatus(statusDiv, `❌ ${error.message}`, 'error');
-            } finally {
-                spinner.style.display = 'none';
-                buttonText.textContent = audioOnly ? 'Extract Audio from All' : 'Download All';
-                button.disabled = false;
-            }
-        }
-
-        // Enhanced refresh downloads with timer display
-        async function refreshDownloads() {
-            const downloadsDiv = document.getElementById('downloads-list');
-            
-            try {
-                const result = await makeRequest('/downloads');
-                
-                if (result.error) {
-                    downloadsDiv.innerHTML = `<div class="status status-error">Error: ${result.error}</div>`;
-                    return;
-                }
-                
-                if (result.items && result.items.length > 0) {
-                    let html = '<div class="downloads-grid">';
-                    
-                    result.items.forEach(item => {
-                        const icon = getFileIcon(item.name);
-                        const size = formatFileSize(item.size);
-                        const folderInfo = item.folder !== 'root' ? `📁 ${item.folder}` : '';
-                        
-                        // Find deletion info for this file
-                        const deletionInfo = result.deletion_info ? 
-                            result.deletion_info.find(d => d.file === item.name) : null;
-                        
-                        let timerHtml = '';
-                        if (deletionInfo && deletionInfo.remaining_seconds > 0) {
-                            const minutes = Math.floor(deletionInfo.remaining_seconds / 60);
-                            const seconds = deletionInfo.remaining_seconds % 60;
-                            const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-                            
-                            const timerClass = deletionInfo.remaining_seconds <= 10 ? 'warning' : '';
-                            timerHtml = `
-                                <div class="download-timer ${timerClass}">
-                                    ⏰ Auto-delete in: <span class="countdown-display">${timeStr}</span>
-                                </div>
-                            `;
-                        } else if (deletionInfo && deletionInfo.remaining_seconds <= 0) {
-                            timerHtml = `
-                                <div class="download-timer expired">
-                                    🗑️ File expired (will be deleted shortly)
-                                </div>
-                            `;
-                        }
-                        
-                        html += `
-                            <div class="download-item">
-                                <h3 class="download-title">${icon} ${item.name}</h3>
-                                <p class="download-meta">${size} ${folderInfo}</p>
-                                ${timerHtml}
-                                <div class="download-actions">
-                                    <button class="btn btn-small" onclick="downloadFile('${item.name}')">
-                                        ⬇️ Download
-                                    </button>
-                                </div>
-                            </div>
-                        `;
-                    });
-                    
-                    html += '</div>';
-                    
-                    // Add auto-delete notice if there are files with timers
-                    if (result.deletion_info && result.deletion_info.length > 0) {
-                        html += `
-                            <div class="auto-delete-notice">
-                                ⚠️ <strong>Auto-Delete Active:</strong> Files will be automatically deleted after 30 seconds if not downloaded.
-                                Download your files quickly! ⚡
-                            </div>
-                        `;
-                    }
-                    
-                    downloadsDiv.innerHTML = html;
-                } else {
-                    downloadsDiv.innerHTML = `
-                        <div class="empty-state">
-                            <div class="empty-state-icon">📁</div>
-                            <p>No downloads yet. Start downloading some content!</p>
-                        </div>
-                    `;
-                }
-            } catch (error) {
-                downloadsDiv.innerHTML = `<div class="status status-error">Network error: ${error.message}</div>`;
-            }
-        }
-
-        // Clear downloads with better error handling
-        async function clearDownloads() {
-            if (!confirm('Are you sure you want to clear all downloads?')) return;
-            
-            try {
-                const result = await makeRequest('/clear-downloads', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
-                });
-                
-                if (result.status === 'success') {
-                    alert('✅ All downloads cleared successfully!');
-                    refreshDownloads();
-                } else {
-                    alert(`❌ Error: ${result.message}`);
-                }
-            } catch (error) {
-                alert(`❌ Network error: ${error.message}`);
-            }
-        }
-
-        // Download handlers
-        function downloadFile(filename) {
-            console.log('📥 Starting download for:', filename);
-            
-            // Show download started message
-            const statusDiv = document.getElementById('downloads-list');
-            const tempStatus = document.createElement('div');
-            tempStatus.className = 'status status-loading';
-            tempStatus.innerHTML = `📥 Preparing download for ${filename}...`;
-            statusDiv.appendChild(tempStatus);
-            
-            // Use a direct link approach instead of iframe
-            const downloadUrl = `/download-file/${encodeURIComponent(filename)}`;
-            console.log('📎 Download URL:', downloadUrl);
-            
-            // Create a temporary link element
-            const link = document.createElement('a');
-            link.href = downloadUrl;
-            link.download = filename;
-            link.style.display = 'none';
-            
-            // Add to DOM and click
-            document.body.appendChild(link);
-            link.click();
-            
-            // Cleanup and refresh
-            setTimeout(() => {
-                document.body.removeChild(link);
-                tempStatus.remove();
-                refreshDownloads();
-            }, 2000);
-            
-            // Also check if download started successfully
-            fetch(downloadUrl, { method: 'HEAD' })
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`Download failed: ${response.status}`);
-                    }
-                    console.log('✅ Download initiated successfully');
-                })
-                .catch(error => {
-                    console.error('❌ Download error:', error);
-                    tempStatus.className = 'status status-error';
-                    tempStatus.innerHTML = `❌ Download failed: ${error.message}`;
-                    setTimeout(() => {
-                        tempStatus.remove();
-                    }, 5000);
-                });
-        }
-
-        // Get file icon based on extension
-        function getFileIcon(filename) {
-            const ext = filename.split('.').pop().toLowerCase();
-            const icons = {
-                'mp4': '🎬', 'avi': '🎬', 'mkv': '🎬', 'mov': '🎬', 'webm': '🎬',
-                'mp3': '🎵', 'wav': '🎵', 'flac': '🎵', 'm4a': '🎵', 'aac': '🎵',
-                'jpg': '🖼️', 'jpeg': '🖼️', 'png': '🖼️', 'gif': '🖼️', 'webp': '🖼️',
-                'pdf': '📄', 'txt': '📄', 'doc': '📄', 'docx': '📄',
-                'zip': '📦', 'rar': '📦', '7z': '📦',
-                'json': '📋', 'xml': '📋', 'csv': '📋'
-            };
-            return icons[ext] || '📄';
-        }
-
-        // Update button text based on selection
-        function updateButtonText() {
-            const singleAudio = document.querySelector('input[name="single-type"]:checked').value === 'audio';
-            const bulkAudio = document.querySelector('input[name="bulk-type"]:checked').value === 'audio';
-            
-            document.getElementById('single-text').textContent = singleAudio ? '💕 Extract Audio for Rashmi' : '💕 Download for Rashmi';
-            document.getElementById('bulk-text').textContent = bulkAudio ? '💕 Extract Audio for Rashmi' : '💕 Download All for Rashmi';
-        }
-
-        // Utility functions
-        function showStatus(container, message, type, append = false) {
-            const statusHtml = `<div class="status status-${type}">${message.replace(/\n/g, '<br>')}</div>`;
-            
-            if (append) {
-                container.innerHTML += statusHtml;
-            } else {
-                container.innerHTML = statusHtml;
-            }
-        }
-
-        function formatFileSize(bytes) {
-            if (bytes === 0) return '0 Bytes';
-            const k = 1024;
-            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-        }
-
-        // Event listeners
-        document.getElementById('single-url').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') downloadSingle();
-        });
-
-        // Enhanced initialization
-        document.addEventListener('DOMContentLoaded', function() {
-            // Initialize downloads on page load
-            refreshDownloads();
-            
-            // Add change listeners to radio buttons
-            document.querySelectorAll('input[name="single-type"], input[name="bulk-type"]').forEach(radio => {
-                radio.addEventListener('change', updateButtonText);
-            });
-            
-            // Enhanced URL input handler
-            document.getElementById('single-url').addEventListener('input', function(e) {
-                const url = e.target.value.toLowerCase();
-                const statusDiv = document.getElementById('single-status');
-                
-                if (!url.trim()) {
-                    statusDiv.innerHTML = '';
-                    return;
-                }
-                
-                if (url.includes('instagram.com') && url.trim()) {
-                    showStatus(statusDiv, '⚠️ Note: Audio extraction not supported for Instagram content', 'loading');
-                } else {
-                    const platforms = {
-                        'youtube.com': 'YouTube', 'youtu.be': 'YouTube',
-                        'tiktok.com': 'TikTok', 'twitter.com': 'Twitter', 'x.com': 'Twitter',
-                        'facebook.com': 'Facebook', 'reddit.com': 'Reddit'
-                    };
-                    
-                    const platform = Object.keys(platforms).find(key => url.includes(key));
-                    
-                    if (platform && url.trim()) {
-                        showStatus(statusDiv, `🌐 Detected: ${platforms[platform]} (Audio extraction supported)`, 'loading');
-                    } else if (url.trim()) {
-                        showStatus(statusDiv, '🔍 Analyzing URL...', 'loading');
-                    }
-                }
-            });
-            
-            console.log('💕 Rashmi\'s Personal Downloader loaded successfully!');
-        });
-
-        // Cleanup on page unload
-        window.addEventListener('beforeunload', function() {
-            if (refreshInterval) {
-                clearInterval(refreshInterval);
-            }
-        });
-    </script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>
