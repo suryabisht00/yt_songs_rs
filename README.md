@@ -40,7 +40,6 @@ Universal Media Downloader is a comprehensive web-based application that demonst
 - **Instagram**: Posts, stories, reels, IGTV videos
 - **Twitter/X**: Videos, GIFs, media from tweets
 - **Facebook**: Public videos, photos, posts
-- **TikTok**: Videos and audio content
 - **Reddit**: Videos, GIFs, media from posts
 - **Generic**: Any platform supported by yt-dlp
 
