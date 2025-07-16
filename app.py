@@ -38,9 +38,9 @@ def cleanup_old_user_folders():
     for folder_name in os.listdir(BASE_DOWNLOAD_DIR):
         folder_path = os.path.join(BASE_DOWNLOAD_DIR, folder_name)
         if os.path.isdir(folder_path):
-            # Check if folder is older than 1 hour
+            # Check if folder is older than 2 hours (increased from 1 hour to accommodate 10-minute file retention)
             folder_age = current_time - os.path.getctime(folder_path)
-            if folder_age > 3600:  # 1 hour in seconds
+            if folder_age > 7200:  # 2 hours in seconds
                 try:
                     shutil.rmtree(folder_path)
                     print(f"🧹 Cleaned up old user folder: {folder_name}")
@@ -90,7 +90,7 @@ class UniversalDownloader:
         else:
             return 'unknown'
 
-    def schedule_file_deletion(self, file_path, delay_seconds=30):
+    def schedule_file_deletion(self, file_path, delay_seconds=600):
         """Schedule a file for deletion after specified delay"""
         def delete_file():
             try:
@@ -174,10 +174,51 @@ class UniversalDownloader:
                     
                     file_path = os.path.join(root, file)
                     if os.path.exists(file_path):
-                        self.schedule_file_deletion(file_path, 30)  # 30 seconds delay
+                        # Schedule subtitle files for immediate deletion (shorter delay)
+                        file_ext = os.path.splitext(file)[1].lower()
+                        if file_ext in {'.vtt', '.srt', '.ass', '.ssa', '.sub', '.idx', '.smi', '.rt', '.txt'} or file.endswith('.info.json'):
+                            self.schedule_file_deletion(file_path, 30)  # 30 seconds for subtitle files
+                            print(f"⏰ Scheduled subtitle file for quick deletion: {os.path.basename(file_path)}")
+                        else:
+                            self.schedule_file_deletion(file_path, 600)  # 10 minutes for media files
                         
         except Exception as e:
             print(f"❌ Error scheduling file deletion: {e}")
+    
+    def cleanup_subtitle_files(self, media_file_path):
+        """Clean up subtitle files associated with a specific media file"""
+        try:
+            base_name = os.path.splitext(media_file_path)[0]
+            directory = os.path.dirname(media_file_path)
+            subtitle_extensions = {'.vtt', '.srt', '.ass', '.ssa', '.sub', '.idx', '.smi', '.rt', '.txt'}
+            
+            for ext in subtitle_extensions:
+                subtitle_file = base_name + ext
+                if os.path.exists(subtitle_file):
+                    os.remove(subtitle_file)
+                    print(f"🧹 Deleted subtitle file: {os.path.basename(subtitle_file)}")
+            
+            # Also clean up any .info.json files
+            info_file = base_name + '.info.json'
+            if os.path.exists(info_file):
+                os.remove(info_file)
+                print(f"🧹 Deleted info file: {os.path.basename(info_file)}")
+            
+            # Look for any files in the directory that might be related subtitle files
+            if os.path.exists(directory):
+                for file in os.listdir(directory):
+                    file_path = os.path.join(directory, file)
+                    if os.path.isfile(file_path):
+                        file_ext = os.path.splitext(file)[1].lower()
+                        if file_ext in subtitle_extensions and base_name in file:
+                            try:
+                                os.remove(file_path)
+                                print(f"🧹 Deleted related subtitle file: {file}")
+                            except:
+                                pass
+                        
+        except Exception as e:
+            print(f"❌ Error cleaning up subtitle files: {e}")
     
     def download_youtube_content(self, url, path, audio_only=False):
         """Download YouTube videos, shorts, playlists"""
@@ -941,7 +982,7 @@ class UniversalDownloader:
         except Exception as e:
             return {'status': 'error', 'message': f'Platform download error: {str(e)}'}
     
-    def download_instagram_content(self, url, path):
+    def download_instagram_content(self, url, path, audio_only=False):
         """Download Instagram content with Vercel optimization"""
         try:
             if audio_only:
@@ -1023,7 +1064,7 @@ class UniversalDownloader:
                 self.schedule_downloaded_files_deletion(path)
                 # Add deletion timing info to response
                 result['deletion_info'] = self.get_file_deletion_info(path)
-                result['auto_delete_seconds'] = 30
+                result['auto_delete_seconds'] = 600
             
             return result
                 
@@ -1038,7 +1079,7 @@ def before_request():
     """Run before each request"""
     # Clean up old user folders periodically
     if hasattr(app, 'last_cleanup'):
-        if time.time() - app.last_cleanup > 3600:  # Clean up every hour
+        if time.time() - app.last_cleanup > 7200:  # Clean up every 2 hours
             cleanup_old_user_folders()
             app.last_cleanup = time.time()
     else:
@@ -1163,13 +1204,32 @@ def download_file(filepath):
                     import time
                     time.sleep(2)
                     
+                    # Clean up subtitle files first
+                    downloader.cleanup_subtitle_files(actual_file_path)
+                    
                     # Delete the original file
                     if os.path.exists(actual_file_path):
                         os.remove(actual_file_path)
                         print(f"🗑️ Deleted downloaded file: {actual_file_path}")
                     
-                    # Clean up empty directories up to user directory
+                    # Clean up ALL subtitle files and metadata files in the directory
                     parent_dir = os.path.dirname(actual_file_path)
+                    if os.path.exists(parent_dir):
+                        excluded_extensions = {'.vtt', '.srt', '.ass', '.ssa', '.sub', '.idx', '.smi', '.rt', '.txt',
+                                             '.info.json', '.description', '.annotations.xml', '.thumbnail'}
+                        
+                        for file in os.listdir(parent_dir):
+                            file_path = os.path.join(parent_dir, file)
+                            if os.path.isfile(file_path):
+                                file_ext = os.path.splitext(file)[1].lower()
+                                if file_ext in excluded_extensions or file.endswith('.info.json'):
+                                    try:
+                                        os.remove(file_path)
+                                        print(f"🧹 Deleted subtitle/metadata file: {file}")
+                                    except:
+                                        pass
+                    
+                    # Clean up empty directories up to user directory
                     while parent_dir != user_download_dir and parent_dir != BASE_DOWNLOAD_DIR and os.path.exists(parent_dir):
                         try:
                             if not os.listdir(parent_dir):  # If directory is empty
@@ -1223,6 +1283,12 @@ def list_downloads():
             '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.svg'
         }
         
+        # Define subtitle and metadata files to exclude
+        excluded_extensions = {
+            '.vtt', '.srt', '.ass', '.ssa', '.sub', '.idx', '.smi', '.rt', '.txt',
+            '.info.json', '.description', '.annotations.xml', '.thumbnail'
+        }
+        
         if os.path.exists(user_download_dir):
             for root, dirs, files in os.walk(user_download_dir):
                 for file in files:
@@ -1230,8 +1296,15 @@ def list_downloads():
                     if file.startswith('.') or file.endswith('.tmp') or file.endswith('.part'):
                         continue
                     
-                    # Skip subtitle files and other non-media files
+                    # Get file extension
                     file_ext = os.path.splitext(file)[1].lower()
+                    
+                    # Skip subtitle files and other excluded files
+                    if file_ext in excluded_extensions:
+                        print(f"⏭️ Skipping excluded file: {file} (extension: {file_ext})")
+                        continue
+                    
+                    # Only include media files
                     if file_ext not in allowed_extensions:
                         print(f"⏭️ Skipping non-media file: {file} (extension: {file_ext})")
                         continue
@@ -1297,24 +1370,37 @@ def cleanup_files():
             except Exception as e:
                 print(f"❌ Error cleaning up {file_path}: {e}")
         
-        # Also clean up subtitle files and other non-media files
-        subtitle_extensions = {'.vtt', '.srt', '.ass', '.ssa', '.sub', '.idx', '.smi', '.rt', '.txt'}
+        # Clean up ALL subtitle files and metadata files regardless of tracking
+        excluded_extensions = {'.vtt', '.srt', '.ass', '.ssa', '.sub', '.idx', '.smi', '.rt', '.txt',
+                             '.info.json', '.description', '.annotations.xml', '.thumbnail'}
         
         for root, dirs, files in os.walk(user_download_dir):
             for file in files:
                 file_ext = os.path.splitext(file)[1].lower()
-                if file_ext in subtitle_extensions:
+                if file_ext in excluded_extensions or file.endswith('.info.json'):
                     file_path = os.path.join(root, file)
                     try:
-                        os.remove(file_path)
-                        cleanup_count += 1
-                        print(f"🧹 Cleaned up subtitle file: {os.path.basename(file_path)}")
+                        if os.path.exists(file_path):
+                            os.remove(file_path)
+                            cleanup_count += 1
+                            print(f"🧹 Cleaned up subtitle/metadata file: {os.path.basename(file_path)}")
                     except Exception as e:
-                        print(f"❌ Error cleaning up subtitle file {file_path}: {e}")
+                        print(f"❌ Error cleaning up subtitle/metadata file {file_path}: {e}")
+        
+        # Clean up empty directories
+        for root, dirs, files in os.walk(user_download_dir, topdown=False):
+            for dir in dirs:
+                dir_path = os.path.join(root, dir)
+                try:
+                    if os.path.exists(dir_path) and not os.listdir(dir_path):
+                        os.rmdir(dir_path)
+                        print(f"🗂️ Removed empty directory: {dir}")
+                except Exception as e:
+                    print(f"❌ Error removing empty directory {dir_path}: {e}")
         
         return jsonify({
             'status': 'success',
-            'message': f'Cleaned up {cleanup_count} files (including subtitle files)',
+            'message': f'Cleaned up {cleanup_count} files (including subtitle and metadata files)',
             'cleaned_count': cleanup_count
         })
         
