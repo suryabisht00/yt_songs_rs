@@ -2,10 +2,41 @@ services:
   - type: web
     name: universal-media-downloader
     env: python
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "gunicorn app:app"
+    buildCommand: |
+      # Install system dependencies
+      apt-get update && apt-get install -y \
+        ffmpeg \
+        chromium-browser \
+        xvfb \
+        wget \
+        curl \
+        ca-certificates \
+        fonts-liberation \
+        libappindicator3-1 \
+        libasound2 \
+        libatk-bridge2.0-0 \
+        libdrm2 \
+        libgtk-3-0 \
+        libnspr4 \
+        libnss3 \
+        libx11-xcb1 \
+        libxcomposite1 \
+        libxdamage1 \
+        libxrandr2 \
+        xdg-utils \
+        libxss1 \
+        libgconf-2-4 \
+        && pip install --upgrade pip \
+        && pip install -r requirements.txt
+    startCommand: "gunicorn app:app --timeout 300 --worker-connections 1000"
     plan: free
     autoDeploy: true
     envVars:
       - key: SECRET_KEY
         value: your-secret-key-here-change-this-in-production
+      - key: RENDER_EXTERNAL_HOSTNAME
+        generateValue: true
+      - key: CHROME_BIN
+        value: /usr/bin/chromium-browser
+      - key: DISPLAY
+        value: :0

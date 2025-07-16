@@ -131,11 +131,18 @@ class MediaDownloader {
         buttonText.textContent = audioOnly ? 'Extracting Audio...' : 'Downloading...';
         
         try {
+            // Add longer timeout for cloud deployment
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minutes timeout
+            
             const result = await this.makeRequest('/download', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url, audio_only: audioOnly })
+                body: JSON.stringify({ url, audio_only: audioOnly }),
+                signal: controller.signal
             });
+            
+            clearTimeout(timeoutId);
             
             if (result.status === 'success') {
                 let message = `✅ ${result.message}`;
@@ -149,13 +156,27 @@ class MediaDownloader {
                 this.startDownloadCountdown();
                 setTimeout(() => this.refreshDownloads(), 1000);
             } else {
-                this.showStatus(statusDiv, `❌ ${result.message}`, 'error');
+                // Enhanced error messages for cloud deployment
+                let errorMessage = result.message;
+                if (errorMessage.includes('geo-blocked') || errorMessage.includes('region')) {
+                    errorMessage = `🌍 ${errorMessage}\n\n💡 Try: Different content or wait for server region changes`;
+                } else if (errorMessage.includes('timeout') || errorMessage.includes('connection')) {
+                    errorMessage = `⏱️ ${errorMessage}\n\n💡 Try: Refresh page and try again`;
+                } else if (errorMessage.includes('private') || errorMessage.includes('restricted')) {
+                    errorMessage = `🔒 ${errorMessage}\n\n💡 Try: Public content only`;
+                }
+                
+                this.showStatus(statusDiv, `❌ ${errorMessage}`, 'error');
             }
         } catch (error) {
-            this.showStatus(statusDiv, `❌ ${error.message}`, 'error');
+            if (error.name === 'AbortError') {
+                this.showStatus(statusDiv, '⏱️ Download timed out. Please try again with a shorter video or check your connection.', 'error');
+            } else {
+                this.showStatus(statusDiv, `❌ ${error.message}`, 'error');
+            }
         } finally {
             this.setButtonLoading(button, false);
-            buttonText.textContent = 'Download Now';
+            buttonText.textContent = audioOnly ? 'Extract Audio' : 'Download Now';
         }
     }
 

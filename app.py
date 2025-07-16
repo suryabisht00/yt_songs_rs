@@ -63,6 +63,36 @@ class UniversalDownloader:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         })
         self.downloaded_files = {}  # Track downloaded files for auto-deletion
+        
+        # Add Render-specific configuration
+        self.is_render = os.getenv('RENDER_EXTERNAL_HOSTNAME') is not None
+        if self.is_render:
+            self.setup_render_environment()
+    
+    def setup_render_environment(self):
+        """Setup environment for Render deployment"""
+        # Set up Chrome/Chromium for Render
+        os.environ['CHROME_BIN'] = '/usr/bin/chromium-browser'
+        os.environ['DISPLAY'] = ':0'
+        
+        # Update user agents for better compatibility
+        self.user_agents = [
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/121.0',
+            'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/121.0'
+        ]
+        
+        # Configure session for Render
+        self.session.headers.update({
+            'User-Agent': self.user_agents[0],
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1'
+        })
+        
+        print("🚀 Render environment configured")
 
     def detect_platform(self, url):
         """Detect the platform from URL"""
@@ -221,125 +251,131 @@ class UniversalDownloader:
             print(f"❌ Error cleaning up subtitle files: {e}")
     
     def download_youtube_content(self, url, path, audio_only=False):
-        """Download YouTube videos, shorts, playlists"""
+        """Download YouTube videos, shorts, playlists with Render compatibility"""
         try:
+            # Enhanced options for Render environment
+            base_opts = {
+                'outtmpl': os.path.join(path, '%(uploader)s - %(title)s.%(ext)s'),
+                'writesubtitles': False,
+                'ignoreerrors': True,
+                'no_warnings': True,
+                'socket_timeout': 30,
+                'retries': 3,
+                'fragment_retries': 3,
+                'extractor_retries': 3,
+                'http_chunk_size': 10485760,
+            }
+            
+            # Add Render-specific options
+            if self.is_render:
+                base_opts.update({
+                    'socket_timeout': 60,
+                    'retries': 5,
+                    'geo_bypass': True,
+                    'geo_bypass_country': 'US',
+                    'http_headers': {
+                        'User-Agent': self.user_agents[0],
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.5',
+                        'Accept-Encoding': 'gzip, deflate',
+                        'Connection': 'keep-alive'
+                    }
+                })
+            
             if audio_only:
-                # Check if FFmpeg is available
                 ffmpeg_available = self.check_ffmpeg_availability()
                 
                 if ffmpeg_available:
-                    # Use FFmpeg for MP3 conversion
-                    ydl_opts = {
-                        'outtmpl': os.path.join(path, '%(uploader)s - %(title)s.%(ext)s'),
-                        'format': 'bestaudio/best',
-                        'postprocessors': [{
-                            'key': 'FFmpegExtractAudio',
-                            'preferredcodec': 'mp3',
-                            'preferredquality': '192',
-                        }],
-                        'writesubtitles': False,
-                        'ignoreerrors': True,
-                        'no_warnings': True,
-                    }
+                    ydl_opts = {**base_opts, 'format': 'bestaudio/best'}
+                    ydl_opts['postprocessors'] = [{
+                        'key': 'FFmpegExtractAudio',
+                        'preferredcodec': 'mp3',
+                        'preferredquality': '192',
+                    }]
                     conversion_msg = "converted to MP3"
                 else:
-                    # Download audio without conversion
-                    ydl_opts = {
-                        'outtmpl': os.path.join(path, '%(uploader)s - %(title)s.%(ext)s'),
-                        'format': 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best',
-                        'writesubtitles': False,
-                        'ignoreerrors': True,
-                        'no_warnings': True,
-                    }
-                    conversion_msg = "in original format (install FFmpeg for MP3 conversion)"
+                    ydl_opts = {**base_opts, 'format': 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best'}
+                    conversion_msg = "in original format"
             else:
-                ydl_opts = {
-                    'outtmpl': os.path.join(path, '%(uploader)s - %(title)s.%(ext)s'),
-                    'format': 'best[height<=1080]/best',
-                    'writesubtitles': True,
-                    'writeautomaticsub': True,
-                    'subtitleslangs': ['en'],
-                    'ignoreerrors': True,
-                    'no_warnings': True,
-                }
+                ydl_opts = {**base_opts, 'format': 'best[height<=1080]/best'}
+                ydl_opts['writesubtitles'] = True
+                ydl_opts['writeautomaticsub'] = True
+                ydl_opts['subtitleslangs'] = ['en']
             
             print(f"🎵 Audio extraction settings: FFmpeg available = {ffmpeg_available if audio_only else 'N/A'}")
             
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
+            # Enhanced error handling for Render
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    
+                    if not info:
+                        return {'status': 'error', 'message': 'Failed to extract video information. The video may be private, deleted, or geo-blocked.'}
+                    
+                    content_type = 'audio' if audio_only else 'video'
+                    
+                    if 'entries' in info and isinstance(info['entries'], list) and info['entries']:
+                        # Filter out None entries
+                        valid_entries = [entry for entry in info['entries'] if entry is not None]
+                        if not valid_entries:
+                            return {'status': 'error', 'message': 'No valid videos found in the playlist'}
+                        titles = [entry.get('title', 'Unknown') for entry in valid_entries]
+                        message = f'Downloaded {len(titles)} {content_type}s from playlist'
+                        if audio_only:
+                            message += f' ({conversion_msg})'
+                        return {
+                            'status': 'success',
+                            'message': message,
+                            'titles': titles[:5],  # Show first 5 titles
+                            'type': f'playlist_{content_type}'
+                        }
+                    else:  # Single video
+                        message = f'YouTube {content_type} downloaded successfully!'
+                        if audio_only:
+                            message += f' ({conversion_msg})'
+                        return {
+                            'status': 'success',
+                            'message': message,
+                            'title': info.get('title', 'Unknown'),
+                            'uploader': info.get('uploader', 'Unknown'),
+                            'type': content_type
+                        }
+                        
+            except Exception as e:
+                error_msg = str(e)
+                print(f"❌ YouTube download error: {error_msg}")
                 
-                # Check if info is None or empty
-                if not info:
-                    return {'status': 'error', 'message': 'Failed to extract video information. The video may be private, deleted, or unavailable.'}
-                
-                content_type = 'audio' if audio_only else 'video'
-                
-                if 'entries' in info and isinstance(info['entries'], list) and info['entries']:
-                    # Filter out None entries
-                    valid_entries = [entry for entry in info['entries'] if entry is not None]
-                    if not valid_entries:
-                        return {'status': 'error', 'message': 'No valid videos found in the playlist'}
-                    titles = [entry.get('title', 'Unknown') for entry in valid_entries]
-                    message = f'Downloaded {len(titles)} {content_type}s from playlist'
-                    if audio_only:
-                        message += f' ({conversion_msg})'
-                    return {
-                        'status': 'success',
-                        'message': message,
-                        'titles': titles[:5],  # Show first 5 titles
-                        'type': f'playlist_{content_type}'
-                    }
-                else:  # Single video
-                    message = f'YouTube {content_type} downloaded successfully!'
-                    if audio_only:
-                        message += f' ({conversion_msg})'
-                    return {
-                        'status': 'success',
-                        'message': message,
-                        'title': info.get('title', 'Unknown'),
-                        'uploader': info.get('uploader', 'Unknown'),
-                        'type': content_type
-                    }
+                # Enhanced error messages for Render
+                if any(keyword in error_msg.lower() for keyword in ['private', 'unavailable', 'blocked', 'restricted']):
+                    if 'geo' in error_msg.lower() or 'country' in error_msg.lower():
+                        return {'status': 'error', 'message': 'This YouTube video is geo-blocked and not available in the server region.'}
+                    elif 'private' in error_msg.lower():
+                        return {'status': 'error', 'message': 'This YouTube video is private and cannot be downloaded.'}
+                    elif 'age' in error_msg.lower() and 'restricted' in error_msg.lower():
+                        return {'status': 'error', 'message': 'This YouTube video is age-restricted and cannot be downloaded without authentication.'}
+                    else:
+                        return {'status': 'error', 'message': 'This YouTube video is unavailable in your region or has been deleted.'}
+                elif 'format' in error_msg.lower():
+                    return {'status': 'error', 'message': 'No suitable video format found for download.'}
+                elif 'timeout' in error_msg.lower() or 'connection' in error_msg.lower():
+                    return {'status': 'error', 'message': 'Download timeout or connection error. Please try again.'}
+                else:
+                    return {'status': 'error', 'message': f'YouTube download failed: {error_msg}'}
+                    
         except Exception as e:
-            error_msg = str(e)
-            print(f"❌ YouTube download error: {error_msg}")
-            
-            # Provide more specific error messages
-            if 'private' in error_msg.lower():
-                return {'status': 'error', 'message': 'This YouTube video is private and cannot be downloaded.'}
-            elif 'unavailable' in error_msg.lower():
-                return {'status': 'error', 'message': 'This YouTube video is unavailable in your region or has been deleted.'}
-            elif 'age' in error_msg.lower() and 'restricted' in error_msg.lower():
-                return {'status': 'error', 'message': 'This YouTube video is age-restricted and cannot be downloaded without authentication.'}
-            elif 'format' in error_msg.lower():
-                return {'status': 'error', 'message': 'No suitable video format found for download.'}
-            else:
-                return {'status': 'error', 'message': f'YouTube download failed: {error_msg}'}
-    
-    def check_ffmpeg_availability(self):
-        """Check if FFmpeg is available - simplified for Vercel"""
-        try:
-            import subprocess
-            result = subprocess.run(['ffmpeg', '-version'], 
-                                  capture_output=True, 
-                                  text=True, 
-                                  timeout=3)
-            return result.returncode == 0
-        except:
-            return False
-    
+            return {'status': 'error', 'message': f'YouTube download failed: {str(e)}'}
+
     def download_instagram_content(self, url, path, audio_only=False):
-        """Download Instagram posts, reels, stories, IGTV"""
+        """Download Instagram posts with enhanced Render compatibility"""
         print(f"🔄 Starting Instagram download for: {url}")
         
-        # Instagram doesn't support audio extraction
         if audio_only:
             return {'status': 'error', 'message': 'Audio extraction not supported for Instagram. Instagram content is primarily visual.'}
         
-        # Try multiple approaches in order of preference
+        # Enhanced methods for Render
         methods = [
-            ("instaloader_anonymous", self._try_instaloader_anonymous),
-            ("instaloader_basic", self._try_instaloader_basic),
+            ("ytdlp_enhanced", self._instagram_ytdlp_enhanced),
+            ("instaloader_render", self._try_instaloader_render),
             ("ytdlp_fallback", self._instagram_ytdlp_fallback),
             ("direct_api", self._try_direct_instagram_api)
         ]
@@ -391,416 +427,118 @@ class UniversalDownloader:
                 'message': f'Instagram download failed with all methods. Last error: {last_error_msg or "Unknown error"}. This may be due to: 1) Content restrictions, 2) Instagram API changes, 3) Network issues, or 4) Content not available. Please try again later or check if the content is public.'
             }
     
-    def _instagram_audio_download(self, url, path):
-        """Download Instagram audio using yt-dlp"""
+    def _instagram_ytdlp_enhanced(self, url, path):
+        """Enhanced yt-dlp for Instagram with better Render compatibility"""
         try:
-            ffmpeg_available = self.check_ffmpeg_availability()
+            print("🔄 Trying enhanced yt-dlp for Instagram on Render...")
             
-            if ffmpeg_available:
-                ydl_opts = {
-                    'outtmpl': os.path.join(path, 'Instagram_%(uploader)s_%(title)s.%(ext)s'),
-                    'format': 'bestaudio/best',
-                    'postprocessors': [{
-                        'key': 'FFmpegExtractAudio',
-                        'preferredcodec': 'mp3',
-                        'preferredquality': '192',
-                    }],
-                    'ignoreerrors': True,
-                    'no_warnings': True,
+            # Render-optimized configuration
+            ydl_opts = {
+                'outtmpl': os.path.join(path, 'Instagram_%(id)s.%(ext)s'),
+                'format': 'best',
+                'ignoreerrors': True,
+                'no_warnings': True,
+                'socket_timeout': 60,
+                'retries': 5,
+                'fragment_retries': 5,
+                'extractor_retries': 5,
+                'geo_bypass': True,
+                'geo_bypass_country': 'US',
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.5',
+                    'Accept-Encoding': 'gzip, deflate',
+                    'Connection': 'keep-alive',
+                    'Upgrade-Insecure-Requests': '1'
                 }
-                conversion_msg = "converted to MP3"
-            else:
-                ydl_opts = {
-                    'outtmpl': os.path.join(path, 'Instagram_%(uploader)s_%(title)s.%(ext)s'),
-                    'format': 'bestaudio/best',
-                    'ignoreerrors': True,
-                    'no_warnings': True,
-                }
-                conversion_msg = "in original format (install FFmpeg for MP3 conversion)"
-            
-            print(f"🎵 Instagram audio extraction settings: FFmpeg available = {ffmpeg_available}")
+            }
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
                 
                 if info:
-                    message = f'Instagram audio downloaded successfully! ({conversion_msg})'
                     return {
                         'status': 'success',
-                        'message': message,
-                        'title': info.get('title', 'Instagram Audio'),
+                        'message': 'Instagram content downloaded successfully with enhanced method!',
+                        'title': info.get('title', 'Instagram Content'),
                         'uploader': info.get('uploader', 'Unknown'),
-                        'type': 'audio'
+                        'type': 'enhanced'
                     }
                 else:
-                    return {'status': 'error', 'message': 'Failed to extract Instagram audio'}
+                    return {'status': 'error', 'message': 'Failed to extract Instagram content with enhanced method'}
                     
         except Exception as e:
-            return {'status': 'error', 'message': f'Instagram audio extraction failed: {str(e)}'}
+            return {'status': 'error', 'message': f'Enhanced Instagram download failed: {str(e)}'}
     
-    def _try_instaloader_anonymous(self, url, path):
-        """Try instaloader with anonymous session and optimized settings"""
+    def _try_instaloader_render(self, url, path):
+        """Render-optimized instaloader method"""
         try:
-            # Create a more robust loader configuration
+            print("🔄 Trying Render-optimized instaloader...")
+            
+            # Render-specific configuration
             loader = instaloader.Instaloader(
                 dirname_pattern=path,
-                filename_pattern='{profile}_{mediaid}',
+                filename_pattern='{mediaid}',
                 download_videos=True,
                 download_video_thumbnails=False,
                 download_geotags=False,
                 download_comments=False,
                 save_metadata=False,
                 compress_json=False,
-                max_connection_attempts=1,  # Reduce connection attempts
-                request_timeout=15.0,
-                resume_prefix=None,
-                user_agent='Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.3 Mobile/15E148 Safari/604.1'
+                max_connection_attempts=3,
+                request_timeout=30.0,
+                user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             )
             
             # Disable verbose logging
             loader.context.log = lambda *args, **kwargs: None
             
-            # Add delay to avoid rate limiting
+            # Add longer delay for Render
             import time
-            time.sleep(1)
-            
-            # Handle different URL types
-            if '/stories/' in url:
-                return self._download_instagram_stories(loader, url, path)
-            elif '/reel/' in url or '/p/' in url or '/tv/' in url:
-                return self._download_instagram_post_robust(loader, url, path)
-            else:
-                return self._download_instagram_profile(loader, url, path)
-                
-        except Exception as e:
-            return {'status': 'error', 'message': f'Anonymous instaloader failed: {str(e)}'}
-    
-    def _try_instaloader_basic(self, url, path):
-        """Try basic instaloader with minimal configuration"""
-        try:
-            loader = instaloader.Instaloader(
-                dirname_pattern=path,
-                filename_pattern='{mediaid}',
-                download_videos=True,
-                save_metadata=False,
-                max_connection_attempts=1,
-                request_timeout=10.0
-            )
-            
-            # Disable all logging
-            loader.context.log = lambda *args, **kwargs: None
+            time.sleep(2)
             
             shortcode = self.extract_instagram_shortcode(url)
             if not shortcode:
                 return {'status': 'error', 'message': 'Could not extract post ID from URL'}
             
-            # Simple direct download without retries
-            post = instaloader.Post.from_shortcode(loader.context, shortcode)
-            loader.download_post(post, target="instagram_download")
+            # Use timeout for Render
+            import threading
+            result = {'post': None, 'error': None}
+            
+            def fetch_post():
+                try:
+                    result['post'] = instaloader.Post.from_shortcode(loader.context, shortcode)
+                except Exception as e:
+                    result['error'] = e
+            
+            thread = threading.Thread(target=fetch_post)
+            thread.daemon = True
+            thread.start()
+            thread.join(timeout=45)  # Longer timeout for Render
+            
+            if thread.is_alive():
+                return {'status': 'error', 'message': 'Post fetching timed out on Render - content may be private or unavailable'}
+            
+            if result['error']:
+                raise result['error']
+            
+            if not result['post']:
+                return {'status': 'error', 'message': 'Failed to fetch post data on Render'}
+            
+            post = result['post']
+            loader.download_post(post, target=post.owner_username)
             
             return {
                 'status': 'success',
-                'message': 'Instagram content downloaded successfully with basic method!',
-                'type': 'basic'
+                'message': 'Instagram content downloaded successfully with Render-optimized method!',
+                'username': post.owner_username,
+                'type': 'render_optimized'
             }
             
         except Exception as e:
-            return {'status': 'error', 'message': f'Basic instaloader failed: {str(e)}'}
-    
-    def _download_instagram_post_robust(self, loader, url, path):
-        """Download Instagram post with enhanced error handling"""
-        try:
-            shortcode = self.extract_instagram_shortcode(url)
-            if not shortcode:
-                return {'status': 'error', 'message': 'Could not extract post ID from URL'}
-            
-            print(f"📱 Extracted shortcode: {shortcode}")
-            
-            # Single attempt with proper timeout handling for Windows
-            try:
-                # Use threading timeout instead of signal for Windows compatibility
-                import threading
-                import time
-                
-                result = {'post': None, 'error': None}
-                
-                def fetch_post():
-                    try:
-                        result['post'] = instaloader.Post.from_shortcode(loader.context, shortcode)
-                    except Exception as e:
-                        result['error'] = e
-                
-                # Start the fetch in a separate thread
-                thread = threading.Thread(target=fetch_post)
-                thread.daemon = True
-                thread.start()
-                thread.join(timeout=30)  # 30 second timeout
-                
-                if thread.is_alive():
-                    return {'status': 'error', 'message': 'Post fetching timed out - content may be private or unavailable'}
-                
-                if result['error']:
-                    raise result['error']
-                
-                if not result['post']:
-                    return {'status': 'error', 'message': 'Failed to fetch post data'}
-                
-                post = result['post']
-                
-                # Download the post
-                loader.download_post(post, target=post.owner_username)
-                
-                content_type = 'reel' if post.is_video else 'post'
-                if hasattr(post, 'typename') and post.typename == 'GraphSidecar':
-                    content_type = 'carousel'
-                
-                return {
-                    'status': 'success',
-                    'message': f'Instagram {content_type} downloaded successfully!',
-                    'username': post.owner_username,
-                    'type': content_type
-                }
-                
-            except Exception as e:
-                error_msg = str(e).lower()
-                if 'private' in error_msg or 'login' in error_msg:
-                    return {'status': 'error', 'message': 'This Instagram content appears to be private or requires login'}
-                elif 'not found' in error_msg or '404' in error_msg:
-                    return {'status': 'error', 'message': 'Instagram post not found - it may have been deleted'}
-                elif 'rate limit' in error_msg or 'too many requests' in error_msg:
-                    return {'status': 'error', 'message': 'Instagram rate limit exceeded - please wait and try again'}
-                elif 'forbidden' in error_msg or '403' in error_msg:
-                    return {'status': 'error', 'message': 'Instagram access forbidden - content may be restricted or private'}
-                else:
-                    return {'status': 'error', 'message': f'Post download failed: {str(e)}'}
-            
-        except Exception as e:
-            return {'status': 'error', 'message': f'Robust post download failed: {str(e)}'}
-    
-    def _instagram_ytdlp_fallback(self, url, path):
-        """Enhanced yt-dlp fallback with better error handling"""
-        try:
-            print("🔄 Trying enhanced yt-dlp fallback for Instagram...")
-            
-            # Multiple yt-dlp configurations to try
-            configs = [
-                {
-                    'name': 'basic',
-                    'opts': {
-                        'outtmpl': os.path.join(path, 'Instagram_%(title)s.%(ext)s'),
-                        'format': 'best',
-                        'ignoreerrors': True,
-                        'no_warnings': True,
-                        'extract_flat': False,
-                    }
-                },
-                {
-                    'name': 'mobile',
-                    'opts': {
-                        'outtmpl': os.path.join(path, 'Instagram_%(id)s.%(ext)s'),
-                        'format': 'best',
-                        'ignoreerrors': True,
-                        'no_warnings': True,
-                        'http_headers': {
-                            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15'
-                        }
-                    }
-                },
-                {
-                    'name': 'age_restricted',
-                    'opts': {
-                        'outtmpl': os.path.join(path, 'Instagram_%(id)s.%(ext)s'),
-                        'format': 'best',
-                        'ignoreerrors': True,
-                        'no_warnings': True,
-                        'age_limit': 18,
-                        'http_headers': {
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                        }
-                    }
-                },
-                {
-                    'name': 'simple',
-                    'opts': {
-                        'outtmpl': os.path.join(path, 'Instagram_content.%(ext)s'),
-                        'format': 'worst',
-                        'ignoreerrors': True,
-                        'no_warnings': True,
-                        'retries': 1
-                    }
-                }
-            ]
-            
-            last_error = None
-            
-            for config in configs:
-                try:
-                    print(f"🔄 Trying yt-dlp config: {config['name']}")
-                    
-                    with yt_dlp.YoutubeDL(config['opts']) as ydl:
-                        info = ydl.extract_info(url, download=True)
-                        
-                        if info:
-                            return {
-                                'status': 'success',
-                                'message': f'Instagram content downloaded successfully using yt-dlp ({config["name"]} config)!',
-                                'title': info.get('title', 'Instagram Content'),
-                                'uploader': info.get('uploader', 'Unknown'),
-                                'type': 'ytdlp_fallback'
-                            }
-                            
-                except Exception as e:
-                    error_msg = str(e).lower()
-                    last_error = str(e)
-                    print(f"❌ yt-dlp config {config['name']} failed: {str(e)}")
-                    
-                    # Check for specific error types
-                    if 'restricted video' in error_msg or '18 years old' in error_msg:
-                        return {
-                            'status': 'error',
-                            'message': 'This Instagram content is age-restricted (18+). Age-restricted content cannot be downloaded without authentication.'
-                        }
-                    elif 'private' in error_msg or 'login' in error_msg:
-                        return {
-                            'status': 'error',
-                            'message': 'This Instagram content is private and requires login to access.'
-                        }
-                    elif 'not found' in error_msg or '404' in error_msg:
-                        return {
-                            'status': 'error',
-                            'message': 'Instagram content not found - it may have been deleted or made private.'
-                        }
-                    
-                    continue
-            
-            # If all configs failed, provide specific error message
-            if last_error:
-                if 'restricted video' in last_error.lower() or '18 years old' in last_error.lower():
-                    return {
-                        'status': 'error',
-                        'message': 'This Instagram content is age-restricted (18+) and cannot be downloaded without authentication.'
-                    }
-                elif 'private' in last_error.lower():
-                    return {
-                        'status': 'error',
-                        'message': 'This Instagram content is private and requires login to access.'
-                    }
-            
-            return {
-                'status': 'error',
-                'message': 'All yt-dlp configurations failed for Instagram content'
-            }
-                
-        except Exception as e:
-            return {
-                'status': 'error', 
-                'message': f'yt-dlp fallback completely failed: {str(e)}'
-            }
-    
-    def _try_direct_instagram_api(self, url, path):
-        """Try direct Instagram API approach as last resort"""
-        try:
-            print("🔄 Attempting direct Instagram API method...")
-            
-            # This is a basic implementation - in production, you'd want more sophisticated API handling
-            shortcode = self.extract_instagram_shortcode(url)
-            if not shortcode:
-                return {'status': 'error', 'message': 'Could not extract post ID'}
-            
-            # Try to get basic post info without full download
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.3 Mobile/15E148 Safari/604.1',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.5',
-                'Accept-Encoding': 'gzip, deflate',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1'
-            }
-            
-            response = self.session.get(f"https://www.instagram.com/p/{shortcode}/", headers=headers, timeout=10)
-            
-            if response.status_code == 200:
-                return {
-                    'status': 'error',
-                    'message': 'Instagram post is accessible but download failed. This content may require special handling or may be protected.'
-                }
-            else:
-                return {
-                    'status': 'error',
-                    'message': f'Instagram post not accessible (HTTP {response.status_code})'
-                }
-                
-        except Exception as e:
-            return {'status': 'error', 'message': f'Direct API method failed: {str(e)}'}
-    
-    def _download_instagram_stories(self, loader, url, path):
-        """Download Instagram stories with error handling"""
-        try:
-            username = self.extract_instagram_username(url)
-            if not username:
-                return {'status': 'error', 'message': 'Could not extract username from URL'}
-            
-            profile = instaloader.Profile.from_username(loader.context, username)
-            stories_downloaded = 0
-            
-            for story in loader.get_stories([profile.userid]):
-                for item in story.get_items():
-                    try:
-                        loader.download_storyitem(item, target=username)
-                        stories_downloaded += 1
-                    except Exception as e:
-                        print(f"⚠️ Failed to download story item: {e}")
-                        continue
-            
-            if stories_downloaded > 0:
-                return {
-                    'status': 'success',
-                    'message': f'Downloaded {stories_downloaded} Instagram stories for {username}',
-                    'type': 'stories'
-                }
-            else:
-                return {'status': 'error', 'message': 'No stories found or all downloads failed'}
-                
-        except Exception as e:
-            return {'status': 'error', 'message': f'Stories download failed: {str(e)}'}
-    
-    def _download_instagram_profile(self, loader, url, path):
-        """Download Instagram profile posts with error handling"""
-        try:
-            username = self.extract_instagram_username(url)
-            if not username:
-                return {'status': 'error', 'message': 'Could not extract username from URL'}
-            
-            profile = instaloader.Profile.from_username(loader.context, username)
-            
-            count = 0
-            errors = 0
-            max_posts = 5  # Reduced to avoid rate limiting
-            
-            for post in profile.get_posts():
-                if count >= max_posts:
-                    break
-                try:
-                    loader.download_post(post, target=username)
-                    count += 1
-                except Exception as e:
-                    print(f"⚠️ Failed to download post {count + errors + 1}: {e}")
-                    errors += 1
-                    if errors > 3:  # Stop if too many errors
-                        break
-            
-            if count > 0:
-                return {
-                    'status': 'success',
-                    'message': f'Downloaded {count} posts from {username} (with {errors} errors)',
-                    'type': 'profile'
-                }
-            else:
-                return {'status': 'error', 'message': 'No posts could be downloaded'}
-                
-        except Exception as e:
-            return {'status': 'error', 'message': f'Profile download failed: {str(e)}'}
-    
+            return {'status': 'error', 'message': f'Render-optimized instaloader failed: {str(e)}'}
+
     def download_tiktok_content(self, url, path, audio_only=False):
         """Download TikTok videos"""
         try:
