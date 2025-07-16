@@ -1124,6 +1124,104 @@ class UniversalDownloader:
             else:
                 return {'status': 'error', 'message': f'Reddit download failed: {error_msg}'}
 
+    def download_content(self, url, audio_only=False):
+        """Main download method that routes to appropriate platform handler"""
+        try:
+            # Get user-specific download directory
+            user_download_dir = get_user_download_dir()
+            
+            # Create a subdirectory for this download
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            download_path = os.path.join(user_download_dir, f"download_{timestamp}")
+            os.makedirs(download_path, exist_ok=True)
+            
+            platform = self.detect_platform(url)
+            print(f"🔍 Detected platform: {platform} for URL: {url}")
+            
+            # Route to appropriate downloader
+            if platform == 'youtube':
+                result = self.download_youtube_content(url, download_path, audio_only)
+            elif platform == 'instagram':
+                result = self.download_instagram_content(url, download_path, audio_only)
+            elif platform == 'tiktok':
+                result = self.download_tiktok_content(url, download_path, audio_only)
+            elif platform == 'twitter':
+                result = self.download_twitter_content(url, download_path, audio_only)
+            elif platform == 'facebook':
+                result = self.download_facebook_content(url, download_path, audio_only)
+            elif platform == 'reddit':
+                result = self.download_reddit_content(url, download_path, audio_only)
+            else:
+                # Try generic downloader for unknown platforms
+                result = self.download_generic_content(url, download_path, audio_only)
+            
+            # If download was successful, schedule file deletion
+            if result.get('status') == 'success':
+                self.schedule_downloaded_files_deletion(download_path)
+                print(f"✅ Download completed successfully for {platform}")
+            else:
+                # Clean up empty directory if download failed
+                try:
+                    if os.path.exists(download_path) and not os.listdir(download_path):
+                        os.rmdir(download_path)
+                        print(f"🧹 Cleaned up empty directory after failed download")
+                except Exception as e:
+                    print(f"⚠️ Error cleaning up directory: {e}")
+            
+            return result
+            
+        except Exception as e:
+            error_msg = f'Download error: {str(e)}'
+            print(f"❌ {error_msg}")
+            return {'status': 'error', 'message': error_msg}
+    
+    def extract_instagram_shortcode(self, url):
+        """Extract Instagram post shortcode from URL"""
+        try:
+            # Handle different Instagram URL formats
+            patterns = [
+                r'instagram\.com/p/([^/?]+)',
+                r'instagram\.com/reel/([^/?]+)',
+                r'instagram\.com/tv/([^/?]+)',
+                r'instagram\.com/stories/[^/]+/([^/?]+)',
+            ]
+            
+            for pattern in patterns:
+                match = re.search(pattern, url)
+                if match:
+                    return match.group(1)
+            
+            print(f"⚠️ Could not extract shortcode from URL: {url}")
+            return None
+            
+        except Exception as e:
+            print(f"❌ Error extracting Instagram shortcode: {e}")
+            return None
+    
+    def extract_instagram_username(self, url):
+        """Extract Instagram username from URL"""
+        try:
+            # Handle different Instagram URL formats
+            patterns = [
+                r'instagram\.com/([^/?]+)',
+                r'instagram\.com/stories/([^/?]+)',
+            ]
+            
+            for pattern in patterns:
+                match = re.search(pattern, url)
+                if match:
+                    username = match.group(1)
+                    # Filter out common non-username paths
+                    if username not in ['p', 'reel', 'tv', 'stories', 'explore', 'accounts']:
+                        return username
+            
+            print(f"⚠️ Could not extract username from URL: {url}")
+            return None
+            
+        except Exception as e:
+            print(f"❌ Error extracting Instagram username: {e}")
+            return None
+    
 # Initialize downloader
 downloader = UniversalDownloader()
 
