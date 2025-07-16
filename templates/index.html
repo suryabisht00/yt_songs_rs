@@ -550,106 +550,49 @@
             background: linear-gradient(90deg, var(--accent), var(--romantic-purple));
         }
 
-        .features {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 2rem;
-            margin-top: 2rem;
-        }
-
-        .feature {
-            text-align: center;
-            padding: 2rem;
-            background: var(--glass);
-            border: 1px solid var(--glass-border);
-            border-radius: 1.5rem;
-            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .feature:hover {
-            transform: translateY(-5px);
-            background: rgba(255, 107, 157, 0.15);
-            box-shadow: 0 20px 40px rgba(255, 107, 157, 0.2);
-        }
-
-        .feature-icon {
-            font-size: 3rem;
-            margin-bottom: 1.5rem;
-            animation: featureFloat 3s ease-in-out infinite;
-        }
-
-        .feature:hover .feature-icon {
-            transform: scale(1.2);
-        }
-
-        @keyframes featureFloat {
-            0%, 100% { transform: translateY(0px); }
-            50% { transform: translateY(-10px); }
-        }
-
-        .feature-title {
-            font-weight: 700;
-            margin-bottom: 1rem;
-            color: var(--text-primary);
-            font-size: 1.1rem;
-        }
-
-        .feature-description {
-            color: var(--text-secondary);
+        .download-timer {
+            background: rgba(251, 191, 36, 0.1);
+            border: 1px solid var(--warning);
+            border-radius: 1rem;
+            padding: 0.75rem 1rem;
+            margin-top: 1rem;
             font-size: 0.9rem;
-        }
-
-        .spinner {
-            width: 24px;
-            height: 24px;
-            border: 3px solid rgba(255, 255, 255, 0.3);
-            border-top: 3px solid white;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .status {
-            margin-top: 2rem;
-            padding: 1.5rem;
-            border-radius: 1.5rem;
+            color: var(--warning);
+            text-align: center;
             font-weight: 600;
-            border-left: 4px solid;
-            animation: slideIn 0.4s ease-out;
         }
 
-        .status-success {
-            background: rgba(74, 222, 128, 0.1);
-            border-color: var(--success);
-            color: var(--success);
-        }
-
-        .status-error {
+        .download-timer.expired {
             background: rgba(248, 113, 113, 0.1);
             border-color: var(--error);
             color: var(--error);
         }
 
-        .status-loading {
+        .download-timer.warning {
+            background: rgba(251, 191, 36, 0.2);
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .countdown-display {
+            font-family: 'Courier New', monospace;
+            font-size: 1.1rem;
+            font-weight: bold;
+        }
+
+        .auto-delete-notice {
             background: rgba(251, 191, 36, 0.1);
-            border-color: var(--warning);
+            border: 1px solid var(--warning);
+            border-radius: 1rem;
+            padding: 1rem;
+            margin-top: 1rem;
             color: var(--warning);
-        }
-
-        .empty-state {
             text-align: center;
-            padding: 4rem 2rem;
-            color: var(--text-secondary);
-        }
-
-        .empty-state-icon {
-            font-size: 4rem;
-            margin-bottom: 1.5rem;
-            opacity: 0.5;
+            font-size: 0.9rem;
         }
 
         @media (max-width: 768px) {
@@ -912,6 +855,10 @@
     </div>
 
     <script>
+        // Global timer management
+        let downloadTimers = {};
+        let refreshInterval = null;
+
         // Add better error handling for network requests
         async function makeRequest(url, options = {}) {
             try {
@@ -957,6 +904,27 @@
             event.target.classList.add('active');
         }
 
+        // Download countdown management
+        function startDownloadCountdown() {
+            // Clear existing interval
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+            }
+            
+            // Start new interval for countdown updates
+            refreshInterval = setInterval(() => {
+                refreshDownloads();
+            }, 1000); // Update every second
+            
+            // Stop after 35 seconds (5 seconds buffer after 30s auto-delete)
+            setTimeout(() => {
+                if (refreshInterval) {
+                    clearInterval(refreshInterval);
+                    refreshInterval = null;
+                }
+            }, 35000);
+        }
+
         // Single download with better error handling
         async function downloadSingle() {
             const url = document.getElementById('single-url').value.trim();
@@ -995,8 +963,17 @@
                     if (result.platform) message += `\n🌐 ${result.platform}`;
                     if (audioOnly) message += `\n🎵 Audio extracted as MP3`;
                     
+                    // Add auto-delete notice
+                    if (result.auto_delete_seconds) {
+                        message += `\n\n⏰ Files will be auto-deleted in ${result.auto_delete_seconds} seconds if not downloaded`;
+                    }
+                    
                     showStatus(statusDiv, message, 'success');
                     document.getElementById('single-url').value = '';
+                    
+                    // Start countdown and refresh downloads
+                    startDownloadCountdown();
+                    setTimeout(() => refreshDownloads(), 1000);
                 } else {
                     showStatus(statusDiv, `❌ ${result.message}`, 'error');
                 }
@@ -1009,7 +986,7 @@
             }
         }
 
-        // Bulk download with better error handling
+        // Enhanced bulk download with timer
         async function downloadBulk() {
             const urlsText = document.getElementById('bulk-urls').value.trim();
             const statusDiv = document.getElementById('bulk-status');
@@ -1054,7 +1031,7 @@
                 if (result.status === 'success') {
                     let message = `✅ ${result.message}`;
                     if (audioOnly) message += ` (Audio extracted as MP3)`;
-                    message += `\n\n`;
+                    message += `\n\n⏰ Files will be auto-deleted in 30 seconds if not downloaded\n\n`;
                     
                     result.results.forEach((res, index) => {
                         const icon = res.status === 'success' ? '✅' : '❌';
@@ -1063,6 +1040,10 @@
                     
                     showStatus(statusDiv, message, 'success');
                     document.getElementById('bulk-urls').value = '';
+                    
+                    // Start countdown and refresh downloads
+                    startDownloadCountdown();
+                    setTimeout(() => refreshDownloads(), 1000);
                 } else {
                     showStatus(statusDiv, `❌ ${result.message}`, 'error');
                 }
@@ -1075,12 +1056,9 @@
             }
         }
 
-        // Refresh downloads with better error handling
+        // Enhanced refresh downloads with timer display
         async function refreshDownloads() {
             const downloadsDiv = document.getElementById('downloads-list');
-            
-            // Show loading state
-            downloadsDiv.innerHTML = '<div class="status status-loading">Loading downloads...</div>';
             
             try {
                 const result = await makeRequest('/downloads');
@@ -1098,10 +1076,35 @@
                         const size = formatFileSize(item.size);
                         const folderInfo = item.folder !== 'root' ? `📁 ${item.folder}` : '';
                         
+                        // Find deletion info for this file
+                        const deletionInfo = result.deletion_info ? 
+                            result.deletion_info.find(d => d.file === item.name) : null;
+                        
+                        let timerHtml = '';
+                        if (deletionInfo && deletionInfo.remaining_seconds > 0) {
+                            const minutes = Math.floor(deletionInfo.remaining_seconds / 60);
+                            const seconds = deletionInfo.remaining_seconds % 60;
+                            const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                            
+                            const timerClass = deletionInfo.remaining_seconds <= 10 ? 'warning' : '';
+                            timerHtml = `
+                                <div class="download-timer ${timerClass}">
+                                    ⏰ Auto-delete in: <span class="countdown-display">${timeStr}</span>
+                                </div>
+                            `;
+                        } else if (deletionInfo && deletionInfo.remaining_seconds <= 0) {
+                            timerHtml = `
+                                <div class="download-timer expired">
+                                    🗑️ File expired (will be deleted shortly)
+                                </div>
+                            `;
+                        }
+                        
                         html += `
                             <div class="download-item">
                                 <h3 class="download-title">${icon} ${item.name}</h3>
                                 <p class="download-meta">${size} ${folderInfo}</p>
+                                ${timerHtml}
                                 <div class="download-actions">
                                     <button class="btn btn-small" onclick="downloadFile('${item.name}')">
                                         ⬇️ Download
@@ -1112,6 +1115,17 @@
                     });
                     
                     html += '</div>';
+                    
+                    // Add auto-delete notice if there are files with timers
+                    if (result.deletion_info && result.deletion_info.length > 0) {
+                        html += `
+                            <div class="auto-delete-notice">
+                                ⚠️ <strong>Auto-Delete Active:</strong> Files will be automatically deleted after 30 seconds if not downloaded.
+                                Download your files quickly! ⚡
+                            </div>
+                        `;
+                    }
+                    
                     downloadsDiv.innerHTML = html;
                 } else {
                     downloadsDiv.innerHTML = `
@@ -1244,33 +1258,10 @@
             if (e.key === 'Enter') downloadSingle();
         });
 
-        // Initialize particles
-        function createParticles() {
-            const particlesContainer = document.getElementById('particles');
-            if (!particlesContainer) return;
-            
-            const particleCount = 50;
-            
-            for (let i = 0; i < particleCount; i++) {
-                const particle = document.createElement('div');
-                particle.className = 'particle';
-                particle.style.left = Math.random() * 100 + '%';
-                particle.style.animationDelay = Math.random() * 10 + 's';
-                particle.style.animationDuration = (Math.random() * 10 + 10) + 's';
-                particlesContainer.appendChild(particle);
-            }
-        }
-
         // Enhanced initialization
         document.addEventListener('DOMContentLoaded', function() {
             // Initialize downloads on page load
             refreshDownloads();
-            
-            // Check server health on load
-            setTimeout(checkServerHealth, 1000);
-            
-            // Check FFmpeg availability
-            checkFFmpegAvailability();
             
             // Add change listeners to radio buttons
             document.querySelectorAll('input[name="single-type"], input[name="bulk-type"]').forEach(radio => {
@@ -1306,10 +1297,14 @@
                 }
             });
             
-            // Remove the test URL auto-fill for production
-            // document.getElementById('single-url').value = testUrl;
-            
             console.log('💕 Rashmi\'s Personal Downloader loaded successfully!');
+        });
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+            }
         });
     </script>
 </body>
