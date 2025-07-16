@@ -354,9 +354,15 @@ body {
 }
 .section-header {
     display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+    margin-bottom: 1.1rem;
+}
+
+.section-header > div:first-child {
+    display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 1.1rem;
     flex-wrap: wrap;
     gap: 0.7rem;
 }
@@ -368,9 +374,58 @@ body {
     align-items: center;
     gap: 0.5rem;
 }
+.select-all-container {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    background: var(--secondary-bg);
+    border-radius: 0.5rem;
+    border: 1px solid var(--border);
+    font-size: 0.95rem;
+}
+.custom-checkbox {
+    appearance: none;
+    width: 1.2rem;
+    height: 1.2rem;
+    border: 2px solid var(--border);
+    border-radius: 0.3rem;
+    cursor: pointer;
+    position: relative;
+    transition: var(--transition);
+}
+.custom-checkbox:checked {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+}
+.custom-checkbox:checked::before {
+    content: '✔';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: white;
+    font-size: 0.8rem;
+}
+.custom-checkbox:indeterminate {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+}
+.custom-checkbox:indeterminate::before {
+    content: '—';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: white;
+    font-size: 1rem;
+    font-weight: bold;
+}
 .section-actions {
     display: flex;
     gap: 0.5rem;
+    flex-wrap: wrap;
+    justify-content: center;
 }
 .action-btn {
     background: var(--secondary-bg);
@@ -392,6 +447,27 @@ body {
     color: var(--accent-primary);
     transform: translateY(-2px);
 }
+.download-selected-btn:hover {
+    background: rgba(16, 185, 129, 0.08);
+    border-color: var(--success);
+    color: var(--success);
+}
+.download-all-btn {
+    background: var(--success);
+    color: #fff;
+    border: 1px solid var(--success);
+}
+.download-all-btn:hover {
+    background: rgba(16, 185, 129, 0.9);
+    border-color: var(--success);
+    color: #fff;
+    transform: translateY(-2px);
+}
+.download-all-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
 .delete-btn:hover {
     background: rgba(239,68,68,0.08);
     border-color: var(--error);
@@ -410,8 +486,14 @@ body {
     border-radius: 0.7rem;
     padding: 1rem;
     transition: var(--transition);
-    animation: fadeInUp 0.5s cubic-bezier(0.4,0,0.2,1);
     box-shadow: 0 1px 6px var(--shadow);
+    position: relative;
+    /* Removed fadeInUp animation to prevent blinking */
+}
+.download-item .custom-checkbox {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
 }
 .download-item:hover {
     transform: translateY(-2px);
@@ -440,24 +522,20 @@ body {
     color: var(--warning);
     text-align: center;
     font-weight: 600;
+    /* Reduced animation intensity to prevent blinking */
 }
 .download-timer.expired {
     background: rgba(239,68,68,0.08);
     border-color: var(--error);
     color: var(--error);
 }
-.download-timer.warning { animation: pulse 1s infinite; }
+.download-timer.warning {
+    animation: pulse 2s infinite;
+}
+
 @keyframes pulse {
-    0%,100% { opacity: 1; }
-    50% { opacity: 0.7; }
-}
-.download-actions {
-    display: flex;
-    gap: 0.5rem;
-}
-.download-actions .action-btn {
-    flex: 1;
-    justify-content: center;
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.8; }
 }
 
 /* Features Section */
@@ -623,67 +701,12 @@ body {
 }
 
 .download-timer.warning {
-    animation: pulse 1s infinite;
+    animation: pulse 2s infinite;
 }
 
 @keyframes pulse {
     0%, 100% { opacity: 1; }
-    50% { opacity: 0.7; }
-}
-
-.download-actions {
-    display: flex;
-    gap: 0.5rem;
-}
-
-.download-actions .action-btn {
-    flex: 1;
-    justify-content: center;
-}
-
-/* Animations */
-@keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-}
-
-@keyframes fadeInUp {
-    from { 
-        opacity: 0; 
-        transform: translateY(30px); 
-    }
-    to { 
-        opacity: 1; 
-        transform: translateY(0); 
-    }
-}
-
-@keyframes slideInUp {
-    from { 
-        opacity: 0; 
-        transform: translateY(50px); 
-    }
-    to { 
-        opacity: 1; 
-        transform: translateY(0); 
-    }
-}
-
-@keyframes slideInDown {
-    from { 
-        opacity: 0; 
-        transform: translateY(-50px); 
-    }
-    to { 
-        opacity: 1; 
-        transform: translateY(0); 
-    }
-}
-
-@keyframes bounce {
-    0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
-    40% { transform: translateY(-10px); }
-    60% { transform: translateY(-5px); }
+    50% { opacity: 0.8; }
 }
 
 /* Tablet Styles */
@@ -756,6 +779,42 @@ body {
     .features-grid {
         grid-template-columns: repeat(5, 1fr);
     }
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--secondary-bg);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--accent-primary);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--accent-secondary);
+}
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--secondary-bg);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--accent-primary);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--accent-secondary);
+}
+}
 }
 
 /* Scrollbar Styling */
