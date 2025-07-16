@@ -180,7 +180,6 @@ gunicorn==21.2.0
 | Instagram | ✅ | ❌ | ✅ | ✅ | Audio not supported |
 | Twitter/X | ✅ | ✅ | ❌ | ❌ | Individual tweets |
 | Facebook | ✅ | ✅ | ❌ | ❌ | Public content only |
-| TikTok | ✅ | ✅ | ❌ | ❌ | Individual videos |
 | Reddit | ✅ | ✅ | ❌ | ❌ | Public posts |
 | Generic | ✅ | ✅ | ✅ | ✅ | Via yt-dlp support |
 
