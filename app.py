@@ -239,6 +239,7 @@ class UniversalDownloader:
                         }],
                         'writesubtitles': False,
                         'ignoreerrors': True,
+                        'no_warnings': True,
                     }
                     conversion_msg = "converted to MP3"
                 else:
@@ -248,16 +249,18 @@ class UniversalDownloader:
                         'format': 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best',
                         'writesubtitles': False,
                         'ignoreerrors': True,
+                        'no_warnings': True,
                     }
                     conversion_msg = "in original format (install FFmpeg for MP3 conversion)"
             else:
                 ydl_opts = {
                     'outtmpl': os.path.join(path, '%(uploader)s - %(title)s.%(ext)s'),
-                    'format': 'best[height<=1080]',
+                    'format': 'best[height<=1080]/best',
                     'writesubtitles': True,
                     'writeautomaticsub': True,
                     'subtitleslangs': ['en'],
                     'ignoreerrors': True,
+                    'no_warnings': True,
                 }
             
             print(f"🎵 Audio extraction settings: FFmpeg available = {ffmpeg_available if audio_only else 'N/A'}")
@@ -265,10 +268,18 @@ class UniversalDownloader:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
                 
+                # Check if info is None or empty
+                if not info:
+                    return {'status': 'error', 'message': 'Failed to extract video information. The video may be private, deleted, or unavailable.'}
+                
                 content_type = 'audio' if audio_only else 'video'
                 
-                if 'entries' in info:  # Playlist
-                    titles = [entry.get('title', 'Unknown') for entry in info['entries'] if entry]
+                if 'entries' in info and isinstance(info['entries'], list) and info['entries']:
+                    # Filter out None entries
+                    valid_entries = [entry for entry in info['entries'] if entry is not None]
+                    if not valid_entries:
+                        return {'status': 'error', 'message': 'No valid videos found in the playlist'}
+                    titles = [entry.get('title', 'Unknown') for entry in valid_entries]
                     message = f'Downloaded {len(titles)} {content_type}s from playlist'
                     if audio_only:
                         message += f' ({conversion_msg})'
@@ -292,7 +303,18 @@ class UniversalDownloader:
         except Exception as e:
             error_msg = str(e)
             print(f"❌ YouTube download error: {error_msg}")
-            return {'status': 'error', 'message': f'YouTube error: {error_msg}'}
+            
+            # Provide more specific error messages
+            if 'private' in error_msg.lower():
+                return {'status': 'error', 'message': 'This YouTube video is private and cannot be downloaded.'}
+            elif 'unavailable' in error_msg.lower():
+                return {'status': 'error', 'message': 'This YouTube video is unavailable in your region or has been deleted.'}
+            elif 'age' in error_msg.lower() and 'restricted' in error_msg.lower():
+                return {'status': 'error', 'message': 'This YouTube video is age-restricted and cannot be downloaded without authentication.'}
+            elif 'format' in error_msg.lower():
+                return {'status': 'error', 'message': 'No suitable video format found for download.'}
+            else:
+                return {'status': 'error', 'message': f'YouTube download failed: {error_msg}'}
     
     def check_ffmpeg_availability(self):
         """Check if FFmpeg is available - simplified for Vercel"""
@@ -795,22 +817,33 @@ class UniversalDownloader:
                             'preferredcodec': 'mp3',
                             'preferredquality': '192',
                         }],
+                        'ignoreerrors': True,
+                        'no_warnings': True,
                     }
                     conversion_msg = "converted to MP3"
                 else:
                     ydl_opts = {
                         'outtmpl': os.path.join(path, 'TikTok_%(uploader)s_%(title)s.%(ext)s'),
                         'format': 'bestaudio/best',
+                        'ignoreerrors': True,
+                        'no_warnings': True,
                     }
                     conversion_msg = "in original format (install FFmpeg for MP3 conversion)"
             else:
                 ydl_opts = {
                     'outtmpl': os.path.join(path, 'TikTok_%(uploader)s_%(title)s.%(ext)s'),
                     'format': 'best',
+                    'ignoreerrors': True,
+                    'no_warnings': True,
                 }
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
+                
+                # Check if info is None
+                if not info:
+                    return {'status': 'error', 'message': 'Failed to extract TikTok video information. The video may be private, deleted, or unavailable.'}
+                
                 content_type = 'audio' if audio_only else 'video'
                 message = f'TikTok {content_type} downloaded successfully!'
                 if audio_only:
@@ -823,7 +856,13 @@ class UniversalDownloader:
                     'type': content_type
                 }
         except Exception as e:
-            return {'status': 'error', 'message': f'TikTok error: {str(e)}'}
+            error_msg = str(e)
+            if 'private' in error_msg.lower():
+                return {'status': 'error', 'message': 'This TikTok video is private and cannot be downloaded.'}
+            elif 'unavailable' in error_msg.lower():
+                return {'status': 'error', 'message': 'This TikTok video is unavailable or has been deleted.'}
+            else:
+                return {'status': 'error', 'message': f'TikTok download failed: {error_msg}'}
     
     def download_twitter_content(self, url, path, audio_only=False):
         """Download Twitter/X videos, images, threads"""
@@ -841,6 +880,7 @@ class UniversalDownloader:
                             'preferredquality': '192',
                         }],
                         'ignoreerrors': True,
+                        'no_warnings': True,
                     }
                     conversion_msg = "converted to MP3"
                 else:
@@ -848,6 +888,7 @@ class UniversalDownloader:
                         'outtmpl': os.path.join(path, 'Twitter_%(uploader)s_%(title)s.%(ext)s'),
                         'format': 'bestaudio/best',
                         'ignoreerrors': True,
+                        'no_warnings': True,
                     }
                     conversion_msg = "in original format (install FFmpeg for MP3 conversion)"
                 
@@ -858,10 +899,15 @@ class UniversalDownloader:
                     'format': 'best',
                     'writesubtitles': True,
                     'ignoreerrors': True,
+                    'no_warnings': True,
                 }
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
+                
+                # Check if info is None
+                if not info:
+                    return {'status': 'error', 'message': 'Failed to extract Twitter content. The tweet may be private, deleted, or contain no media.'}
                 
                 content_type = 'audio' if audio_only else 'tweet'
                 message = f'Twitter {content_type} downloaded successfully!'
@@ -876,7 +922,13 @@ class UniversalDownloader:
                     'type': content_type
                 }
         except Exception as e:
-            return {'status': 'error', 'message': f'Twitter error: {str(e)}'}
+            error_msg = str(e)
+            if 'private' in error_msg.lower():
+                return {'status': 'error', 'message': 'This Twitter content is private and cannot be downloaded.'}
+            elif 'unavailable' in error_msg.lower():
+                return {'status': 'error', 'message': 'This Twitter content is unavailable or has been deleted.'}
+            else:
+                return {'status': 'error', 'message': f'Twitter download failed: {error_msg}'}
     
     def download_facebook_content(self, url, path, audio_only=False):
         """Download Facebook videos, posts"""
@@ -894,6 +946,7 @@ class UniversalDownloader:
                             'preferredquality': '192',
                         }],
                         'ignoreerrors': True,
+                        'no_warnings': True,
                     }
                     conversion_msg = "converted to MP3"
                 else:
@@ -901,6 +954,7 @@ class UniversalDownloader:
                         'outtmpl': os.path.join(path, 'Facebook_%(uploader)s_%(title)s.%(ext)s'),
                         'format': 'bestaudio/best',
                         'ignoreerrors': True,
+                        'no_warnings': True,
                     }
                     conversion_msg = "in original format (install FFmpeg for MP3 conversion)"
                 
@@ -910,10 +964,15 @@ class UniversalDownloader:
                     'outtmpl': os.path.join(path, 'Facebook_%(uploader)s_%(title)s.%(ext)s'),
                     'format': 'best',
                     'ignoreerrors': True,
+                    'no_warnings': True,
                 }
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
+                
+                # Check if info is None
+                if not info:
+                    return {'status': 'error', 'message': 'Failed to extract Facebook content. The post may be private, deleted, or unavailable.'}
                 
                 content_type = 'audio' if audio_only else 'video'
                 message = f'Facebook {content_type} downloaded successfully!'
@@ -928,63 +987,17 @@ class UniversalDownloader:
                     'type': content_type
                 }
         except Exception as e:
-            return {'status': 'error', 'message': f'Facebook error: {str(e)}'}
+            error_msg = str(e)
+            if 'private' in error_msg.lower():
+                return {'status': 'error', 'message': 'This Facebook content is private and cannot be downloaded.'}
+            elif 'unavailable' in error_msg.lower():
+                return {'status': 'error', 'message': 'This Facebook content is unavailable or has been deleted.'}
+            else:
+                return {'status': 'error', 'message': f'Facebook download failed: {error_msg}'}
     
     def download_generic_content(self, url, path, audio_only=False):
         """Download from other platforms with bypass techniques"""
         try:
-            base_opts = self.get_bypass_options(url)
-            
-            if audio_only:
-                ffmpeg_available = self.check_ffmpeg_availability()
-                
-                if ffmpeg_available:
-                    ydl_opts = {
-                        'outtmpl': os.path.join(path, 'Reddit_%(title)s.%(ext)s'),
-                        'format': 'bestaudio/best',
-                        'postprocessors': [{
-                            'key': 'FFmpegExtractAudio',
-                            'preferredcodec': 'mp3',
-                            'preferredquality': '192',
-                        }],
-                        'ignoreerrors': True,
-                    }
-                    conversion_msg = "converted to MP3"
-                else:
-                    ydl_opts = {
-                        'outtmpl': os.path.join(path, 'Reddit_%(title)s.%(ext)s'),
-                        'format': 'bestaudio/best',
-                        'ignoreerrors': True,
-                    }
-                    conversion_msg = "in original format (install FFmpeg for MP3 conversion)"
-                
-                print(f"🎵 Reddit audio extraction settings: FFmpeg available = {ffmpeg_available}")
-            else:
-                ydl_opts = {
-                    'outtmpl': os.path.join(path, 'Reddit_%(title)s.%(ext)s'),
-                    'ignoreerrors': True,
-                }
-            
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                
-                content_type = 'audio' if audio_only else 'post'
-                message = f'Reddit {content_type} downloaded successfully!'
-                if audio_only:
-                    message += f' ({conversion_msg})'
-                
-                return {
-                    'status': 'success',
-                    'message': message,
-                    'title': info.get('title', 'Reddit Post'),
-                    'type': content_type
-                }
-        except Exception as e:
-            return {'status': 'error', 'message': f'Platform download error: {str(e)}'}
-    
-    def download_instagram_content(self, url, path, audio_only=False):
-        """Download Instagram content with Vercel optimization"""
-        try:
             if audio_only:
                 ffmpeg_available = self.check_ffmpeg_availability()
                 
@@ -998,6 +1011,7 @@ class UniversalDownloader:
                             'preferredquality': '192',
                         }],
                         'ignoreerrors': True,
+                        'no_warnings': True,
                     }
                     conversion_msg = "converted to MP3"
                 else:
@@ -1005,6 +1019,7 @@ class UniversalDownloader:
                         'outtmpl': os.path.join(path, '%(extractor)s_%(title)s.%(ext)s'),
                         'format': 'bestaudio/best',
                         'ignoreerrors': True,
+                        'no_warnings': True,
                     }
                     conversion_msg = "in original format (install FFmpeg for MP3 conversion)"
                 
@@ -1014,10 +1029,15 @@ class UniversalDownloader:
                     'outtmpl': os.path.join(path, '%(extractor)s_%(title)s.%(ext)s'),
                     'format': 'best',
                     'ignoreerrors': True,
+                    'no_warnings': True,
                 }
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
+                
+                # Check if info is None
+                if not info:
+                    return {'status': 'error', 'message': 'Failed to extract content from this platform. The content may be private, deleted, or not supported.'}
                 
                 content_type = 'audio' if audio_only else 'media'
                 message = f'{content_type.title()} downloaded successfully!'
@@ -1032,44 +1052,77 @@ class UniversalDownloader:
                     'type': content_type
                 }
         except Exception as e:
-            return {'status': 'error', 'message': f'Instagram error: {str(e)}'}
-    
-    def download_content(self, url, custom_path=None, audio_only=False):
-        """Main download function"""
-        path = custom_path or get_user_download_dir()
-        platform = self.detect_platform(url)
-        
-        # For direct downloads without folder creation
-        try:
-            if platform == 'youtube':
-                result = self.download_youtube_content(url, path, audio_only)
-            elif platform == 'instagram':
-                if audio_only:
-                    return {'status': 'error', 'message': 'Audio extraction not supported for Instagram. Instagram content is primarily visual.'}
-                result = self.download_instagram_content(url, path, audio_only)
-            elif platform == 'tiktok':
-                result = self.download_tiktok_content(url, path, audio_only)
-            elif platform == 'twitter':
-                result = self.download_twitter_content(url, path, audio_only)
-            elif platform == 'facebook':
-                result = self.download_facebook_content(url, path, audio_only)
-            elif platform == 'reddit':
-                result = self.download_reddit_content(url, path, audio_only)
+            error_msg = str(e)
+            if 'private' in error_msg.lower():
+                return {'status': 'error', 'message': 'This content is private and cannot be downloaded.'}
+            elif 'unavailable' in error_msg.lower():
+                return {'status': 'error', 'message': 'This content is unavailable or has been deleted.'}
             else:
-                # Try generic download for other platforms
-                result = self.download_generic_content(url, path, audio_only)
-            
-            # Schedule auto-deletion for downloaded files and add timer info
-            if result.get('status') == 'success':
-                self.schedule_downloaded_files_deletion(path)
-                # Add deletion timing info to response
-                result['deletion_info'] = self.get_file_deletion_info(path)
-                result['auto_delete_seconds'] = 600
-            
-            return result
+                return {'status': 'error', 'message': f'Platform download failed: {error_msg}'}
+    
+    # Add missing method for Reddit content
+    def download_reddit_content(self, url, path, audio_only=False):
+        """Download Reddit videos and images"""
+        try:
+            if audio_only:
+                ffmpeg_available = self.check_ffmpeg_availability()
                 
+                if ffmpeg_available:
+                    ydl_opts = {
+                        'outtmpl': os.path.join(path, 'Reddit_%(title)s.%(ext)s'),
+                        'format': 'bestaudio/best',
+                        'postprocessors': [{
+                            'key': 'FFmpegExtractAudio',
+                            'preferredcodec': 'mp3',
+                            'preferredquality': '192',
+                        }],
+                        'ignoreerrors': True,
+                        'no_warnings': True,
+                    }
+                    conversion_msg = "converted to MP3"
+                else:
+                    ydl_opts = {
+                        'outtmpl': os.path.join(path, 'Reddit_%(title)s.%(ext)s'),
+                        'format': 'bestaudio/best',
+                        'ignoreerrors': True,
+                        'no_warnings': True,
+                    }
+                    conversion_msg = "in original format (install FFmpeg for MP3 conversion)"
+            
+            else:
+                ydl_opts = {
+                    'outtmpl': os.path.join(path, 'Reddit_%(title)s.%(ext)s'),
+                    'format': 'best',
+                    'ignoreerrors': True,
+                    'no_warnings': True,
+                }
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                
+                # Check if info is None
+                if not info:
+                    return {'status': 'error', 'message': 'Failed to extract Reddit content. The post may be deleted, private, or contain no media.'}
+                
+                content_type = 'audio' if audio_only else 'post'
+                message = f'Reddit {content_type} downloaded successfully!'
+                if audio_only:
+                    message += f' ({conversion_msg})'
+                
+                return {
+                    'status': 'success',
+                    'message': message,
+                    'title': info.get('title', 'Reddit Post'),
+                    'type': content_type
+                }
         except Exception as e:
-            return {'status': 'error', 'message': f'Unexpected error: {str(e)}'}
+            error_msg = str(e)
+            if 'private' in error_msg.lower():
+                return {'status': 'error', 'message': 'This Reddit post is private and cannot be downloaded.'}
+            elif 'unavailable' in error_msg.lower():
+                return {'status': 'error', 'message': 'This Reddit post is unavailable or has been deleted.'}
+            else:
+                return {'status': 'error', 'message': f'Reddit download failed: {error_msg}'}
 
 # Initialize downloader
 downloader = UniversalDownloader()
@@ -1473,60 +1526,6 @@ def clear_downloads():
     except Exception as e:
         return jsonify({'status': 'error', 'message': f'Clear error: {str(e)}'}), 500
 
-# Vercel entry point
+# For Render: Use Gunicorn or similar WSGI server in production.
 if __name__ == '__main__':
-    print("=" * 60)
-    print("UNIVERSAL SOCIAL MEDIA DOWNLOADER")
-    print("=" * 60)
-    print("Starting server...")
-    print("Supported platforms: YouTube, Instagram, TikTok, Twitter/X, Facebook, Reddit, and more!")
-    print("Features: Stories, Reels, Posts, Videos, Bulk downloads")
-    print("Multi-user support with isolated download folders")
-    print("Server running on: http://localhost:5000")
-    print("=" * 60)
-    
-    # Ensure downloads directory exists
-    if not os.path.exists(BASE_DOWNLOAD_DIR):
-        os.makedirs(BASE_DOWNLOAD_DIR)
-        print(f"✅ Created downloads directory: {BASE_DOWNLOAD_DIR}")
-    
-    # Test if required modules are available
-    try:
-        import yt_dlp
-        print("✅ yt-dlp is available")
-    except ImportError:
-        print("❌ yt-dlp is not installed. Run: pip install yt-dlp")
-    
-    try:
-        import instaloader
-        print("✅ instaloader is available")
-    except ImportError:
-        print("❌ instaloader is not installed. Run: pip install instaloader")
-    
-    # Check FFmpeg availability
-    try:
-        import subprocess
-        result = subprocess.run(['ffmpeg', '-version'], 
-                              capture_output=True, 
-                              text=True, 
-                              timeout=5)
-        if result.returncode == 0:
-            print("✅ FFmpeg is available - MP3 conversion supported")
-        else:
-            print("⚠️ FFmpeg found but not working properly")
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        print("⚠️ FFmpeg is not installed - audio will be downloaded in original format")
-        print("   To enable MP3 conversion, install FFmpeg:")
-        print("   - Windows: Download from https://ffmpeg.org/download.html")
-        print("   - Or using chocolatey: choco install ffmpeg")
-        print("   - Or using winget: winget install ffmpeg")
-    except Exception as e:
-        print(f"⚠️ FFmpeg check failed: {e}")
-    
-    print("=" * 60)
-    
-    try:
-        app.run(debug=True, host='0.0.0.0', port=5000)
-    except Exception as e:
-        print(f"❌ Failed to start server: {e}")
-        print("Make sure port 5000 is not already in use")
+    app.run(debug=True, host='0.0.0.0', port=5000)
