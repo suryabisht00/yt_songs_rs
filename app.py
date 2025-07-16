@@ -1,4 +1,4 @@
-from flask import Flask, request, render_template, jsonify, send_file
+from flask import Flask, request, render_template, jsonify, send_file, session
 import os
 import tempfile
 import threading
@@ -10,23 +10,44 @@ import yt_dlp
 import instaloader
 from werkzeug.utils import secure_filename
 import shutil
-import io
-import base64
-from urllib.parse import urlparse
-import random
+import uuid
 import time
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'your-secret-key-here-change-this'
+app.config['SECRET_KEY'] = 'your-secret-key-here-change-this-in-production'
 
-# Use temporary directory for Vercel compatibility
-TEMP_DIR = tempfile.gettempdir()
-DOWNLOAD_DIR = os.path.join(TEMP_DIR, 'downloads')
+# Create base downloads directory if it doesn't exist
+BASE_DOWNLOAD_DIR = os.path.join(os.getcwd(), 'downloads')
+if not os.path.exists(BASE_DOWNLOAD_DIR):
+    os.makedirs(BASE_DOWNLOAD_DIR)
 
-# In-memory storage for download tracking
-download_cache = {}
+def get_user_download_dir():
+    """Get or create user-specific download directory"""
+    if 'user_id' not in session:
+        session['user_id'] = str(uuid.uuid4())
+    
+    user_dir = os.path.join(BASE_DOWNLOAD_DIR, session['user_id'])
+    if not os.path.exists(user_dir):
+        os.makedirs(user_dir)
+    
+    return user_dir
 
-class VercelCompatibleDownloader:
+def cleanup_old_user_folders():
+    """Clean up user folders older than 1 hour"""
+    current_time = time.time()
+    for folder_name in os.listdir(BASE_DOWNLOAD_DIR):
+        folder_path = os.path.join(BASE_DOWNLOAD_DIR, folder_name)
+        if os.path.isdir(folder_path):
+            # Check if folder is older than 1 hour
+            folder_age = current_time - os.path.getctime(folder_path)
+            if folder_age > 3600:  # 1 hour in seconds
+                try:
+                    shutil.rmtree(folder_path)
+                    print(f"🧹 Cleaned up old user folder: {folder_name}")
+                except Exception as e:
+                    print(f"⚠️ Error cleaning up folder {folder_name}: {e}")
+
+class UniversalDownloader:
     def __init__(self):
         self.session = requests.Session()
         # Rotate user agents to bypass restrictions
@@ -39,102 +60,10 @@ class VercelCompatibleDownloader:
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0'
         ]
         self.session.headers.update({
-            'User-Agent': random.choice(self.user_agents),
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Accept-Encoding': 'gzip, deflate',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         })
-        
-    def get_bypass_options(self, url):
-        """Get bypass options for different scenarios"""
-        base_options = {
-            'quiet': True,
-            'no_warnings': True,
-            'extract_flat': False,
-            'socket_timeout': 30,
-            'retries': 5,
-            'fragment_retries': 5,
-            'ignoreerrors': True,
-            'no_check_certificate': True,
-            'prefer_insecure': True,
-            # Bypass geo-restrictions
-            'geo_bypass': True,
-            'geo_bypass_country': ['US', 'UK', 'CA', 'AU', 'DE', 'FR', 'JP'],
-            # User agent rotation
-            'http_headers': {
-                'User-Agent': random.choice(self.user_agents),
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.5',
-                'Accept-Encoding': 'gzip, deflate',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-                'Sec-Fetch-Dest': 'document',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'none',
-                'Cache-Control': 'max-age=0'
-            }
-        }
-        
-        # YouTube specific bypasses
-        if 'youtube.com' in url or 'youtu.be' in url:
-            base_options.update({
-                # Try to bypass age restrictions
-                'age_limit': 99,
-                'mark_watched': False,
-                'writesubtitles': False,
-                'writeautomaticsub': False,
-                'allsubtitles': False,
-                'listsubtitles': False,
-                # Use alternative extractors
-                'youtube_include_dash_manifest': False,
-                'youtube_include_hls_manifest': False,
-                # Cookie support for login bypass
-                'cookiefile': None,
-                'cookiesfrombrowser': None,
-                # Additional bypass techniques
-                'extractor_args': {
-                    'youtube': {
-                        'skip': ['dash', 'hls'],
-                        'player_skip': ['js', 'configs'],
-                        'player_client': ['android', 'web'],
-                        'comment_sort': ['top'],
-                        'max_comments': ['0']
-                    }
-                }
-            })
-        
-        return base_options
-    
-    def try_alternative_extractors(self, url):
-        """Try alternative extraction methods"""
-        alternatives = [
-            # Try with different client configurations
-            {'extractor_args': {'youtube': {'player_client': ['android']}}},
-            {'extractor_args': {'youtube': {'player_client': ['web']}}},
-            {'extractor_args': {'youtube': {'player_client': ['ios']}}},
-            {'extractor_args': {'youtube': {'player_client': ['mweb']}}},
-            # Try with different bypass methods
-            {'geo_bypass_country': 'US'},
-            {'geo_bypass_country': 'UK'},
-            {'geo_bypass_country': 'CA'},
-            # Try with age bypass
-            {'age_limit': 999},
-        ]
-        
-        # Add user agent variations
-        for ua in self.user_agents[:3]:
-            alternatives.append({'http_headers': {'User-Agent': ua}})
-        
-        for alt_config in alternatives:
-            try:
-                print(f"Trying alternative config: {alt_config}")
-                yield alt_config
-            except Exception as e:
-                print(f"Alternative config failed: {e}")
-                continue
-    
+        self.downloaded_files = {}  # Track downloaded files for auto-deletion
+
     def detect_platform(self, url):
         """Detect the platform from URL"""
         url = url.lower()
@@ -160,13 +89,169 @@ class VercelCompatibleDownloader:
             return 'twitch'
         else:
             return 'unknown'
+
+    def schedule_file_deletion(self, file_path, delay_seconds=30):
+        """Schedule a file for deletion after specified delay"""
+        def delete_file():
+            try:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    print(f"🗑️ Auto-deleted file after {delay_seconds}s: {os.path.basename(file_path)}")
+                    
+                    # Clean up empty directories up to user directory
+                    parent_dir = os.path.dirname(file_path)
+                    user_download_dir = get_user_download_dir()
+                    
+                    while parent_dir != user_download_dir and parent_dir != BASE_DOWNLOAD_DIR and os.path.exists(parent_dir):
+                        try:
+                            if not os.listdir(parent_dir):  # If directory is empty
+                                os.rmdir(parent_dir)
+                                print(f"🗂️ Removed empty directory: {os.path.basename(parent_dir)}")
+                                parent_dir = os.path.dirname(parent_dir)
+                            else:
+                                break
+                        except:
+                            break
+                else:
+                    print(f"⚠️ File already deleted: {os.path.basename(file_path)}")
+                    
+                # Remove from tracking
+                if file_path in self.downloaded_files:
+                    del self.downloaded_files[file_path]
+                    
+            except Exception as e:
+                print(f"❌ Error auto-deleting file {file_path}: {e}")
+        
+        # Schedule deletion
+        timer = threading.Timer(delay_seconds, delete_file)
+        timer.daemon = True
+        timer.start()
+        
+        # Track the file and timer
+        self.downloaded_files[file_path] = {
+            'timer': timer,
+            'created_at': datetime.now(),
+            'downloaded': False,
+            'auto_delete_time': datetime.now().timestamp() + delay_seconds
+        }
+        
+        print(f"⏰ Scheduled auto-deletion for {os.path.basename(file_path)} in {delay_seconds} seconds")
     
-    def create_temp_dir(self):
-        """Create a temporary directory for downloads"""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        temp_path = os.path.join(TEMP_DIR, f'dl_{timestamp}')
-        os.makedirs(temp_path, exist_ok=True)
-        return temp_path
+    def mark_file_as_downloaded(self, file_path):
+        """Mark a file as downloaded to prevent auto-deletion"""
+        if file_path in self.downloaded_files:
+            self.downloaded_files[file_path]['downloaded'] = True
+            # Cancel the auto-deletion timer
+            if self.downloaded_files[file_path]['timer']:
+                self.downloaded_files[file_path]['timer'].cancel()
+                print(f"✅ Cancelled auto-deletion for downloaded file: {os.path.basename(file_path)}")
+    
+    def get_file_deletion_info(self, user_download_dir):
+        """Get deletion timing info for files in user directory"""
+        deletion_info = []
+        current_time = datetime.now().timestamp()
+        
+        for file_path, info in self.downloaded_files.items():
+            if file_path.startswith(user_download_dir) and not info['downloaded']:
+                remaining_time = max(0, info['auto_delete_time'] - current_time)
+                deletion_info.append({
+                    'file': os.path.basename(file_path),
+                    'remaining_seconds': int(remaining_time),
+                    'auto_delete_time': info['auto_delete_time']
+                })
+        
+        return deletion_info
+    
+    def schedule_downloaded_files_deletion(self, path):
+        """Schedule deletion for all files in the given path"""
+        try:
+            # Find all files in the path and schedule them for deletion
+            for root, dirs, files in os.walk(path):
+                for file in files:
+                    # Skip hidden files and system files
+                    if file.startswith('.') or file.endswith('.tmp') or file.endswith('.part'):
+                        continue
+                    
+                    file_path = os.path.join(root, file)
+                    if os.path.exists(file_path):
+                        self.schedule_file_deletion(file_path, 30)  # 30 seconds delay
+                        
+        except Exception as e:
+            print(f"❌ Error scheduling file deletion: {e}")
+    
+    def download_youtube_content(self, url, path, audio_only=False):
+        """Download YouTube videos, shorts, playlists"""
+        try:
+            if audio_only:
+                # Check if FFmpeg is available
+                ffmpeg_available = self.check_ffmpeg_availability()
+                
+                if ffmpeg_available:
+                    # Use FFmpeg for MP3 conversion
+                    ydl_opts = {
+                        'outtmpl': os.path.join(path, '%(uploader)s - %(title)s.%(ext)s'),
+                        'format': 'bestaudio/best',
+                        'postprocessors': [{
+                            'key': 'FFmpegExtractAudio',
+                            'preferredcodec': 'mp3',
+                            'preferredquality': '192',
+                        }],
+                        'writesubtitles': False,
+                        'ignoreerrors': True,
+                    }
+                    conversion_msg = "converted to MP3"
+                else:
+                    # Download audio without conversion
+                    ydl_opts = {
+                        'outtmpl': os.path.join(path, '%(uploader)s - %(title)s.%(ext)s'),
+                        'format': 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best',
+                        'writesubtitles': False,
+                        'ignoreerrors': True,
+                    }
+                    conversion_msg = "in original format (install FFmpeg for MP3 conversion)"
+            else:
+                ydl_opts = {
+                    'outtmpl': os.path.join(path, '%(uploader)s - %(title)s.%(ext)s'),
+                    'format': 'best[height<=1080]',
+                    'writesubtitles': True,
+                    'writeautomaticsub': True,
+                    'subtitleslangs': ['en'],
+                    'ignoreerrors': True,
+                }
+            
+            print(f"🎵 Audio extraction settings: FFmpeg available = {ffmpeg_available if audio_only else 'N/A'}")
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                
+                content_type = 'audio' if audio_only else 'video'
+                
+                if 'entries' in info:  # Playlist
+                    titles = [entry.get('title', 'Unknown') for entry in info['entries'] if entry]
+                    message = f'Downloaded {len(titles)} {content_type}s from playlist'
+                    if audio_only:
+                        message += f' ({conversion_msg})'
+                    return {
+                        'status': 'success',
+                        'message': message,
+                        'titles': titles[:5],  # Show first 5 titles
+                        'type': f'playlist_{content_type}'
+                    }
+                else:  # Single video
+                    message = f'YouTube {content_type} downloaded successfully!'
+                    if audio_only:
+                        message += f' ({conversion_msg})'
+                    return {
+                        'status': 'success',
+                        'message': message,
+                        'title': info.get('title', 'Unknown'),
+                        'uploader': info.get('uploader', 'Unknown'),
+                        'type': content_type
+                    }
+        except Exception as e:
+            error_msg = str(e)
+            print(f"❌ YouTube download error: {error_msg}")
+            return {'status': 'error', 'message': f'YouTube error: {error_msg}'}
     
     def check_ffmpeg_availability(self):
         """Check if FFmpeg is available - simplified for Vercel"""
@@ -180,191 +265,629 @@ class VercelCompatibleDownloader:
         except:
             return False
     
-    def download_youtube_content(self, url, path, audio_only=False):
-        """Download YouTube content with advanced bypass techniques"""
+    def download_instagram_content(self, url, path, audio_only=False):
+        """Download Instagram posts, reels, stories, IGTV"""
+        print(f"🔄 Starting Instagram download for: {url}")
+        
+        # Instagram doesn't support audio extraction
+        if audio_only:
+            return {'status': 'error', 'message': 'Audio extraction not supported for Instagram. Instagram content is primarily visual.'}
+        
+        # Try multiple approaches in order of preference
+        methods = [
+            ("instaloader_anonymous", self._try_instaloader_anonymous),
+            ("instaloader_basic", self._try_instaloader_basic),
+            ("ytdlp_fallback", self._instagram_ytdlp_fallback),
+            ("direct_api", self._try_direct_instagram_api)
+        ]
+        
+        age_restricted = False
+        private_content = False
+        last_error_msg = None
+        
+        for method_name, method_func in methods:
+            try:
+                print(f"🔄 Trying method: {method_name}")
+                result = method_func(url, path)
+                
+                if result['status'] == 'success':
+                    print(f"✅ Success with method: {method_name}")
+                    return result
+                else:
+                    error_msg = result.get('message', '').lower()
+                    last_error_msg = result.get('message', '')
+                    
+                    # Track specific error types
+                    if 'age-restricted' in error_msg or '18 years old' in error_msg or 'restricted video' in error_msg:
+                        age_restricted = True
+                    elif 'private' in error_msg or 'login' in error_msg:
+                        private_content = True
+                    
+                    print(f"❌ Failed with method: {method_name} - {result.get('message', 'Unknown error')}")
+                    
+            except Exception as e:
+                print(f"❌ Exception with method {method_name}: {str(e)}")
+                last_error_msg = str(e)
+                continue
+        
+        # Provide specific error messages based on what was detected
+        if age_restricted:
+            return {
+                'status': 'error',
+                'message': 'This Instagram content is age-restricted (18+). Age-restricted content requires authentication and cannot be downloaded through this service.'
+            }
+        elif private_content:
+            return {
+                'status': 'error',
+                'message': 'This Instagram content is private and requires login to access. Private content cannot be downloaded through this service.'
+            }
+        else:
+            # Generic error message with more helpful information
+            return {
+                'status': 'error',
+                'message': f'Instagram download failed with all methods. Last error: {last_error_msg or "Unknown error"}. This may be due to: 1) Content restrictions, 2) Instagram API changes, 3) Network issues, or 4) Content not available. Please try again later or check if the content is public.'
+            }
+    
+    def _instagram_audio_download(self, url, path):
+        """Download Instagram audio using yt-dlp"""
         try:
-            # Base configuration with bypass options
-            base_opts = self.get_bypass_options(url)
+            ffmpeg_available = self.check_ffmpeg_availability()
             
-            if audio_only:
-                base_opts.update({
-                    'outtmpl': os.path.join(path, '%(title)s.%(ext)s'),
-                    'format': 'bestaudio[ext=m4a]/bestaudio/best',
-                    'extractaudio': True,
-                    'audioformat': 'mp3' if self.check_ffmpeg_availability() else 'best',
-                    'audioquality': '192',
-                })
+            if ffmpeg_available:
+                ydl_opts = {
+                    'outtmpl': os.path.join(path, 'Instagram_%(uploader)s_%(title)s.%(ext)s'),
+                    'format': 'bestaudio/best',
+                    'postprocessors': [{
+                        'key': 'FFmpegExtractAudio',
+                        'preferredcodec': 'mp3',
+                        'preferredquality': '192',
+                    }],
+                    'ignoreerrors': True,
+                    'no_warnings': True,
+                }
+                conversion_msg = "converted to MP3"
             else:
-                base_opts.update({
-                    'outtmpl': os.path.join(path, '%(title)s.%(ext)s'),
-                    'format': 'best[height<=720]/best',
-                })
+                ydl_opts = {
+                    'outtmpl': os.path.join(path, 'Instagram_%(uploader)s_%(title)s.%(ext)s'),
+                    'format': 'bestaudio/best',
+                    'ignoreerrors': True,
+                    'no_warnings': True,
+                }
+                conversion_msg = "in original format (install FFmpeg for MP3 conversion)"
             
-            # Try multiple extraction attempts with different configurations
-            last_error = None
+            print(f"🎵 Instagram audio extraction settings: FFmpeg available = {ffmpeg_available}")
             
-            for attempt, alt_config in enumerate(self.try_alternative_extractors(url)):
-                try:
-                    print(f"Attempt {attempt + 1}: Trying with config {alt_config}")
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                
+                if info:
+                    message = f'Instagram audio downloaded successfully! ({conversion_msg})'
+                    return {
+                        'status': 'success',
+                        'message': message,
+                        'title': info.get('title', 'Instagram Audio'),
+                        'uploader': info.get('uploader', 'Unknown'),
+                        'type': 'audio'
+                    }
+                else:
+                    return {'status': 'error', 'message': 'Failed to extract Instagram audio'}
                     
-                    # Merge base options with alternative config
-                    ydl_opts = {**base_opts, **alt_config}
-                    
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        # First try to extract info
-                        info = ydl.extract_info(url, download=False)
-                        
-                        if info is None:
-                            print(f"Info extraction failed for attempt {attempt + 1}")
-                            continue
-                        
-                        # Validate extracted info
-                        if not self.validate_extracted_info(info):
-                            print(f"Info validation failed for attempt {attempt + 1}")
-                            continue
-                        
-                        # If we get here, extraction worked, now download
-                        print(f"Info extraction successful, proceeding with download")
-                        info = ydl.extract_info(url, download=True)
-                        
-                        if info is None:
-                            print(f"Download failed for attempt {attempt + 1}")
-                            continue
-                        
-                        # Success! Process the result
-                        return self.process_download_result(info, path, audio_only)
-                        
-                except yt_dlp.utils.DownloadError as e:
-                    error_msg = str(e).lower()
-                    print(f"Download error in attempt {attempt + 1}: {error_msg}")
-                    last_error = e
-                    
-                    # Don't retry for certain errors
-                    if any(fatal in error_msg for fatal in ['copyright', 'terminated', 'suspended']):
-                        break
-                    
-                    # Add delay between attempts
-                    if attempt < 4:  # Not the last attempt
-                        time.sleep(2)
-                    continue
-                    
-                except Exception as e:
-                    print(f"General error in attempt {attempt + 1}: {str(e)}")
-                    last_error = e
-                    continue
+        except Exception as e:
+            return {'status': 'error', 'message': f'Instagram audio extraction failed: {str(e)}'}
+    
+    def _try_instaloader_anonymous(self, url, path):
+        """Try instaloader with anonymous session and optimized settings"""
+        try:
+            # Create a more robust loader configuration
+            loader = instaloader.Instaloader(
+                dirname_pattern=path,
+                filename_pattern='{profile}_{mediaid}',
+                download_videos=True,
+                download_video_thumbnails=False,
+                download_geotags=False,
+                download_comments=False,
+                save_metadata=False,
+                compress_json=False,
+                max_connection_attempts=1,  # Reduce connection attempts
+                request_timeout=15.0,
+                resume_prefix=None,
+                user_agent='Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.3 Mobile/15E148 Safari/604.1'
+            )
             
-            # If all attempts failed, return appropriate error
-            if last_error:
-                return self.handle_download_error(last_error)
+            # Disable verbose logging
+            loader.context.log = lambda *args, **kwargs: None
+            
+            # Add delay to avoid rate limiting
+            import time
+            time.sleep(1)
+            
+            # Handle different URL types
+            if '/stories/' in url:
+                return self._download_instagram_stories(loader, url, path)
+            elif '/reel/' in url or '/p/' in url or '/tv/' in url:
+                return self._download_instagram_post_robust(loader, url, path)
             else:
-                return {'status': 'error', 'message': 'All extraction attempts failed. Video may be permanently unavailable.'}
+                return self._download_instagram_profile(loader, url, path)
                 
         except Exception as e:
-            return {'status': 'error', 'message': f'Unexpected error during download: {str(e)}'}
+            return {'status': 'error', 'message': f'Anonymous instaloader failed: {str(e)}'}
     
-    def validate_extracted_info(self, info):
-        """Validate extracted info structure"""
-        if not isinstance(info, dict):
-            return False
-        
-        # Check for playlist
-        if 'entries' in info:
-            entries = info.get('entries')
-            if entries is None:
-                return False
+    def _try_instaloader_basic(self, url, path):
+        """Try basic instaloader with minimal configuration"""
+        try:
+            loader = instaloader.Instaloader(
+                dirname_pattern=path,
+                filename_pattern='{mediaid}',
+                download_videos=True,
+                save_metadata=False,
+                max_connection_attempts=1,
+                request_timeout=10.0
+            )
             
-            # Filter valid entries
-            valid_entries = []
-            for entry in entries:
-                if entry is not None and isinstance(entry, dict):
-                    if entry.get('title') is not None or entry.get('id') is not None:
-                        valid_entries.append(entry)
+            # Disable all logging
+            loader.context.log = lambda *args, **kwargs: None
             
-            if not valid_entries:
-                return False
+            shortcode = self.extract_instagram_shortcode(url)
+            if not shortcode:
+                return {'status': 'error', 'message': 'Could not extract post ID from URL'}
             
-            # Update with valid entries
-            info['entries'] = valid_entries
-            return True
-        else:
-            # Single video validation
-            return (info.get('title') is not None or info.get('id') is not None)
-    
-    def process_download_result(self, info, path, audio_only):
-        """Process successful download result"""
-        download_id = f"yt_{datetime.now().timestamp()}"
-        download_cache[download_id] = {
-            'path': path,
-            'info': info,
-            'type': 'audio' if audio_only else 'video'
-        }
-        
-        content_type = 'audio' if audio_only else 'video'
-        
-        # Handle playlist vs single video
-        if 'entries' in info and info.get('entries') is not None:
-            entries = info.get('entries', [])
-            
-            # Filter valid entries
-            valid_entries = []
-            for entry in entries:
-                if entry is not None and isinstance(entry, dict):
-                    title = entry.get('title')
-                    if title is not None and str(title).strip():
-                        valid_entries.append(entry)
-            
-            if not valid_entries:
-                return {'status': 'error', 'message': 'Playlist processed but no valid videos found'}
-            
-            titles = [entry.get('title', 'Unknown Title') for entry in valid_entries]
+            # Simple direct download without retries
+            post = instaloader.Post.from_shortcode(loader.context, shortcode)
+            loader.download_post(post, target="instagram_download")
             
             return {
                 'status': 'success',
-                'message': f'Successfully downloaded {len(titles)} {content_type}s from playlist!',
-                'titles': titles[:5],
-                'type': f'playlist_{content_type}',
-                'download_id': download_id
+                'message': 'Instagram content downloaded successfully with basic method!',
+                'type': 'basic'
             }
-        else:
-            # Single video
-            title = info.get('title')
-            uploader = info.get('uploader')
             
-            if title is None or not str(title).strip():
-                title = f"Video_{info.get('id', 'Unknown')}"
+        except Exception as e:
+            return {'status': 'error', 'message': f'Basic instaloader failed: {str(e)}'}
+    
+    def _download_instagram_post_robust(self, loader, url, path):
+        """Download Instagram post with enhanced error handling"""
+        try:
+            shortcode = self.extract_instagram_shortcode(url)
+            if not shortcode:
+                return {'status': 'error', 'message': 'Could not extract post ID from URL'}
             
-            if uploader is None or not str(uploader).strip():
-                uploader = 'Unknown Channel'
+            print(f"📱 Extracted shortcode: {shortcode}")
+            
+            # Single attempt with proper timeout handling for Windows
+            try:
+                # Use threading timeout instead of signal for Windows compatibility
+                import threading
+                import time
+                
+                result = {'post': None, 'error': None}
+                
+                def fetch_post():
+                    try:
+                        result['post'] = instaloader.Post.from_shortcode(loader.context, shortcode)
+                    except Exception as e:
+                        result['error'] = e
+                
+                # Start the fetch in a separate thread
+                thread = threading.Thread(target=fetch_post)
+                thread.daemon = True
+                thread.start()
+                thread.join(timeout=30)  # 30 second timeout
+                
+                if thread.is_alive():
+                    return {'status': 'error', 'message': 'Post fetching timed out - content may be private or unavailable'}
+                
+                if result['error']:
+                    raise result['error']
+                
+                if not result['post']:
+                    return {'status': 'error', 'message': 'Failed to fetch post data'}
+                
+                post = result['post']
+                
+                # Download the post
+                loader.download_post(post, target=post.owner_username)
+                
+                content_type = 'reel' if post.is_video else 'post'
+                if hasattr(post, 'typename') and post.typename == 'GraphSidecar':
+                    content_type = 'carousel'
+                
+                return {
+                    'status': 'success',
+                    'message': f'Instagram {content_type} downloaded successfully!',
+                    'username': post.owner_username,
+                    'type': content_type
+                }
+                
+            except Exception as e:
+                error_msg = str(e).lower()
+                if 'private' in error_msg or 'login' in error_msg:
+                    return {'status': 'error', 'message': 'This Instagram content appears to be private or requires login'}
+                elif 'not found' in error_msg or '404' in error_msg:
+                    return {'status': 'error', 'message': 'Instagram post not found - it may have been deleted'}
+                elif 'rate limit' in error_msg or 'too many requests' in error_msg:
+                    return {'status': 'error', 'message': 'Instagram rate limit exceeded - please wait and try again'}
+                elif 'forbidden' in error_msg or '403' in error_msg:
+                    return {'status': 'error', 'message': 'Instagram access forbidden - content may be restricted or private'}
+                else:
+                    return {'status': 'error', 'message': f'Post download failed: {str(e)}'}
+            
+        except Exception as e:
+            return {'status': 'error', 'message': f'Robust post download failed: {str(e)}'}
+    
+    def _instagram_ytdlp_fallback(self, url, path):
+        """Enhanced yt-dlp fallback with better error handling"""
+        try:
+            print("🔄 Trying enhanced yt-dlp fallback for Instagram...")
+            
+            # Multiple yt-dlp configurations to try
+            configs = [
+                {
+                    'name': 'basic',
+                    'opts': {
+                        'outtmpl': os.path.join(path, 'Instagram_%(title)s.%(ext)s'),
+                        'format': 'best',
+                        'ignoreerrors': True,
+                        'no_warnings': True,
+                        'extract_flat': False,
+                    }
+                },
+                {
+                    'name': 'mobile',
+                    'opts': {
+                        'outtmpl': os.path.join(path, 'Instagram_%(id)s.%(ext)s'),
+                        'format': 'best',
+                        'ignoreerrors': True,
+                        'no_warnings': True,
+                        'http_headers': {
+                            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15'
+                        }
+                    }
+                },
+                {
+                    'name': 'age_restricted',
+                    'opts': {
+                        'outtmpl': os.path.join(path, 'Instagram_%(id)s.%(ext)s'),
+                        'format': 'best',
+                        'ignoreerrors': True,
+                        'no_warnings': True,
+                        'age_limit': 18,
+                        'http_headers': {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                        }
+                    }
+                },
+                {
+                    'name': 'simple',
+                    'opts': {
+                        'outtmpl': os.path.join(path, 'Instagram_content.%(ext)s'),
+                        'format': 'worst',
+                        'ignoreerrors': True,
+                        'no_warnings': True,
+                        'retries': 1
+                    }
+                }
+            ]
+            
+            last_error = None
+            
+            for config in configs:
+                try:
+                    print(f"🔄 Trying yt-dlp config: {config['name']}")
+                    
+                    with yt_dlp.YoutubeDL(config['opts']) as ydl:
+                        info = ydl.extract_info(url, download=True)
+                        
+                        if info:
+                            return {
+                                'status': 'success',
+                                'message': f'Instagram content downloaded successfully using yt-dlp ({config["name"]} config)!',
+                                'title': info.get('title', 'Instagram Content'),
+                                'uploader': info.get('uploader', 'Unknown'),
+                                'type': 'ytdlp_fallback'
+                            }
+                            
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    last_error = str(e)
+                    print(f"❌ yt-dlp config {config['name']} failed: {str(e)}")
+                    
+                    # Check for specific error types
+                    if 'restricted video' in error_msg or '18 years old' in error_msg:
+                        return {
+                            'status': 'error',
+                            'message': 'This Instagram content is age-restricted (18+). Age-restricted content cannot be downloaded without authentication.'
+                        }
+                    elif 'private' in error_msg or 'login' in error_msg:
+                        return {
+                            'status': 'error',
+                            'message': 'This Instagram content is private and requires login to access.'
+                        }
+                    elif 'not found' in error_msg or '404' in error_msg:
+                        return {
+                            'status': 'error',
+                            'message': 'Instagram content not found - it may have been deleted or made private.'
+                        }
+                    
+                    continue
+            
+            # If all configs failed, provide specific error message
+            if last_error:
+                if 'restricted video' in last_error.lower() or '18 years old' in last_error.lower():
+                    return {
+                        'status': 'error',
+                        'message': 'This Instagram content is age-restricted (18+) and cannot be downloaded without authentication.'
+                    }
+                elif 'private' in last_error.lower():
+                    return {
+                        'status': 'error',
+                        'message': 'This Instagram content is private and requires login to access.'
+                    }
             
             return {
-                'status': 'success',
-                'message': f'Successfully downloaded {content_type} with bypass techniques!',
-                'title': str(title),
-                'uploader': str(uploader),
-                'type': content_type,
-                'download_id': download_id
+                'status': 'error',
+                'message': 'All yt-dlp configurations failed for Instagram content'
+            }
+                
+        except Exception as e:
+            return {
+                'status': 'error', 
+                'message': f'yt-dlp fallback completely failed: {str(e)}'
             }
     
-    def handle_download_error(self, error):
-        """Handle download errors with specific messages"""
-        error_msg = str(error).lower()
-        
-        if any(phrase in error_msg for phrase in ["video unavailable", "this video is unavailable"]):
-            return {'status': 'error', 'message': 'Video unavailable even with bypass attempts. May be permanently deleted.'}
-        elif any(phrase in error_msg for phrase in ["private video", "video is private"]):
-            return {'status': 'error', 'message': 'Private video - cannot bypass privacy restrictions.'}
-        elif "sign in to confirm your age" in error_msg:
-            return {'status': 'error', 'message': 'Age-restricted content - tried bypass but failed.'}
-        elif any(phrase in error_msg for phrase in ["403", "forbidden"]):
-            return {'status': 'error', 'message': 'Access forbidden - tried geo-bypass but failed.'}
-        elif "404" in error_msg:
-            return {'status': 'error', 'message': 'Video not found - may be deleted or URL is incorrect.'}
-        elif any(phrase in error_msg for phrase in ["copyright", "terminated", "suspended"]):
-            return {'status': 'error', 'message': 'Video removed due to copyright/terms violation.'}
-        elif "region" in error_msg or "country" in error_msg:
-            return {'status': 'error', 'message': 'Region-blocked content - geo-bypass failed.'}
-        else:
-            return {'status': 'error', 'message': f'Download failed after multiple bypass attempts: {str(error)}'}
+    def _try_direct_instagram_api(self, url, path):
+        """Try direct Instagram API approach as last resort"""
+        try:
+            print("🔄 Attempting direct Instagram API method...")
+            
+            # This is a basic implementation - in production, you'd want more sophisticated API handling
+            shortcode = self.extract_instagram_shortcode(url)
+            if not shortcode:
+                return {'status': 'error', 'message': 'Could not extract post ID'}
+            
+            # Try to get basic post info without full download
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.3 Mobile/15E148 Safari/604.1',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1'
+            }
+            
+            response = self.session.get(f"https://www.instagram.com/p/{shortcode}/", headers=headers, timeout=10)
+            
+            if response.status_code == 200:
+                return {
+                    'status': 'error',
+                    'message': 'Instagram post is accessible but download failed. This content may require special handling or may be protected.'
+                }
+            else:
+                return {
+                    'status': 'error',
+                    'message': f'Instagram post not accessible (HTTP {response.status_code})'
+                }
+                
+        except Exception as e:
+            return {'status': 'error', 'message': f'Direct API method failed: {str(e)}'}
+    
+    def _download_instagram_stories(self, loader, url, path):
+        """Download Instagram stories with error handling"""
+        try:
+            username = self.extract_instagram_username(url)
+            if not username:
+                return {'status': 'error', 'message': 'Could not extract username from URL'}
+            
+            profile = instaloader.Profile.from_username(loader.context, username)
+            stories_downloaded = 0
+            
+            for story in loader.get_stories([profile.userid]):
+                for item in story.get_items():
+                    try:
+                        loader.download_storyitem(item, target=username)
+                        stories_downloaded += 1
+                    except Exception as e:
+                        print(f"⚠️ Failed to download story item: {e}")
+                        continue
+            
+            if stories_downloaded > 0:
+                return {
+                    'status': 'success',
+                    'message': f'Downloaded {stories_downloaded} Instagram stories for {username}',
+                    'type': 'stories'
+                }
+            else:
+                return {'status': 'error', 'message': 'No stories found or all downloads failed'}
+                
+        except Exception as e:
+            return {'status': 'error', 'message': f'Stories download failed: {str(e)}'}
+    
+    def _download_instagram_profile(self, loader, url, path):
+        """Download Instagram profile posts with error handling"""
+        try:
+            username = self.extract_instagram_username(url)
+            if not username:
+                return {'status': 'error', 'message': 'Could not extract username from URL'}
+            
+            profile = instaloader.Profile.from_username(loader.context, username)
+            
+            count = 0
+            errors = 0
+            max_posts = 5  # Reduced to avoid rate limiting
+            
+            for post in profile.get_posts():
+                if count >= max_posts:
+                    break
+                try:
+                    loader.download_post(post, target=username)
+                    count += 1
+                except Exception as e:
+                    print(f"⚠️ Failed to download post {count + errors + 1}: {e}")
+                    errors += 1
+                    if errors > 3:  # Stop if too many errors
+                        break
+            
+            if count > 0:
+                return {
+                    'status': 'success',
+                    'message': f'Downloaded {count} posts from {username} (with {errors} errors)',
+                    'type': 'profile'
+                }
+            else:
+                return {'status': 'error', 'message': 'No posts could be downloaded'}
+                
+        except Exception as e:
+            return {'status': 'error', 'message': f'Profile download failed: {str(e)}'}
+    
+    def download_tiktok_content(self, url, path, audio_only=False):
+        """Download TikTok videos"""
+        try:
+            if audio_only:
+                # Check FFmpeg availability for TikTok too
+                ffmpeg_available = self.check_ffmpeg_availability()
+                
+                if ffmpeg_available:
+                    ydl_opts = {
+                        'outtmpl': os.path.join(path, 'TikTok_%(uploader)s_%(title)s.%(ext)s'),
+                        'format': 'bestaudio/best',
+                        'postprocessors': [{
+                            'key': 'FFmpegExtractAudio',
+                            'preferredcodec': 'mp3',
+                            'preferredquality': '192',
+                        }],
+                    }
+                    conversion_msg = "converted to MP3"
+                else:
+                    ydl_opts = {
+                        'outtmpl': os.path.join(path, 'TikTok_%(uploader)s_%(title)s.%(ext)s'),
+                        'format': 'bestaudio/best',
+                    }
+                    conversion_msg = "in original format (install FFmpeg for MP3 conversion)"
+            else:
+                ydl_opts = {
+                    'outtmpl': os.path.join(path, 'TikTok_%(uploader)s_%(title)s.%(ext)s'),
+                    'format': 'best',
+                }
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                content_type = 'audio' if audio_only else 'video'
+                message = f'TikTok {content_type} downloaded successfully!'
+                if audio_only:
+                    message += f' ({conversion_msg})'
+                return {
+                    'status': 'success',
+                    'message': message,
+                    'title': info.get('title', 'TikTok Video'),
+                    'uploader': info.get('uploader', 'Unknown'),
+                    'type': content_type
+                }
+        except Exception as e:
+            return {'status': 'error', 'message': f'TikTok error: {str(e)}'}
+    
+    def download_twitter_content(self, url, path, audio_only=False):
+        """Download Twitter/X videos, images, threads"""
+        try:
+            if audio_only:
+                ffmpeg_available = self.check_ffmpeg_availability()
+                
+                if ffmpeg_available:
+                    ydl_opts = {
+                        'outtmpl': os.path.join(path, 'Twitter_%(uploader)s_%(title)s.%(ext)s'),
+                        'format': 'bestaudio/best',
+                        'postprocessors': [{
+                            'key': 'FFmpegExtractAudio',
+                            'preferredcodec': 'mp3',
+                            'preferredquality': '192',
+                        }],
+                        'ignoreerrors': True,
+                    }
+                    conversion_msg = "converted to MP3"
+                else:
+                    ydl_opts = {
+                        'outtmpl': os.path.join(path, 'Twitter_%(uploader)s_%(title)s.%(ext)s'),
+                        'format': 'bestaudio/best',
+                        'ignoreerrors': True,
+                    }
+                    conversion_msg = "in original format (install FFmpeg for MP3 conversion)"
+                
+                print(f"🎵 Twitter audio extraction settings: FFmpeg available = {ffmpeg_available}")
+            else:
+                ydl_opts = {
+                    'outtmpl': os.path.join(path, 'Twitter_%(uploader)s_%(title)s.%(ext)s'),
+                    'format': 'best',
+                    'writesubtitles': True,
+                    'ignoreerrors': True,
+                }
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                
+                content_type = 'audio' if audio_only else 'tweet'
+                message = f'Twitter {content_type} downloaded successfully!'
+                if audio_only:
+                    message += f' ({conversion_msg})'
+                
+                return {
+                    'status': 'success',
+                    'message': message,
+                    'title': info.get('title', 'Twitter Content'),
+                    'uploader': info.get('uploader', 'Unknown'),
+                    'type': content_type
+                }
+        except Exception as e:
+            return {'status': 'error', 'message': f'Twitter error: {str(e)}'}
+    
+    def download_facebook_content(self, url, path, audio_only=False):
+        """Download Facebook videos, posts"""
+        try:
+            if audio_only:
+                ffmpeg_available = self.check_ffmpeg_availability()
+                
+                if ffmpeg_available:
+                    ydl_opts = {
+                        'outtmpl': os.path.join(path, 'Facebook_%(uploader)s_%(title)s.%(ext)s'),
+                        'format': 'bestaudio/best',
+                        'postprocessors': [{
+                            'key': 'FFmpegExtractAudio',
+                            'preferredcodec': 'mp3',
+                            'preferredquality': '192',
+                        }],
+                        'ignoreerrors': True,
+                    }
+                    conversion_msg = "converted to MP3"
+                else:
+                    ydl_opts = {
+                        'outtmpl': os.path.join(path, 'Facebook_%(uploader)s_%(title)s.%(ext)s'),
+                        'format': 'bestaudio/best',
+                        'ignoreerrors': True,
+                    }
+                    conversion_msg = "in original format (install FFmpeg for MP3 conversion)"
+                
+                print(f"🎵 Facebook audio extraction settings: FFmpeg available = {ffmpeg_available}")
+            else:
+                ydl_opts = {
+                    'outtmpl': os.path.join(path, 'Facebook_%(uploader)s_%(title)s.%(ext)s'),
+                    'format': 'best',
+                    'ignoreerrors': True,
+                }
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                
+                content_type = 'audio' if audio_only else 'video'
+                message = f'Facebook {content_type} downloaded successfully!'
+                if audio_only:
+                    message += f' ({conversion_msg})'
+                
+                return {
+                    'status': 'success',
+                    'message': message,
+                    'title': info.get('title', 'Facebook Content'),
+                    'uploader': info.get('uploader', 'Unknown'),
+                    'type': content_type
+                }
+        except Exception as e:
+            return {'status': 'error', 'message': f'Facebook error: {str(e)}'}
     
     def download_generic_content(self, url, path, audio_only=False):
         """Download from other platforms with bypass techniques"""
@@ -372,129 +895,154 @@ class VercelCompatibleDownloader:
             base_opts = self.get_bypass_options(url)
             
             if audio_only:
-                base_opts.update({
-                    'outtmpl': os.path.join(path, '%(title)s.%(ext)s'),
-                    'format': 'bestaudio/best',
-                    'extractaudio': True,
-                    'audioformat': 'mp3' if self.check_ffmpeg_availability() else 'best',
-                })
-            else:
-                base_opts.update({
-                    'outtmpl': os.path.join(path, '%(title)s.%(ext)s'),
-                    'format': 'best[height<=720]/best',
-                })
-            
-            # Try multiple configurations
-            for attempt, alt_config in enumerate(self.try_alternative_extractors(url)):
-                try:
-                    ydl_opts = {**base_opts, **alt_config}
-                    
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        info = ydl.extract_info(url, download=False)
-                        
-                        if info is None:
-                            continue
-                        
-                        info = ydl.extract_info(url, download=True)
-                        
-                        if not info:
-                            continue
-                        
-                        # Success
-                        download_id = f"gen_{datetime.now().timestamp()}"
-                        download_cache[download_id] = {
-                            'path': path,
-                            'info': info,
-                            'type': 'audio' if audio_only else 'video'
-                        }
-                        
-                        content_type = 'audio' if audio_only else 'media'
-                        title = info.get('title', 'Unknown') if info else 'Unknown'
-                        extractor = info.get('extractor', 'Unknown') if info else 'Unknown'
-                        
-                        return {
-                            'status': 'success',
-                            'message': f'{content_type.title()} downloaded successfully with bypass!',
-                            'title': title,
-                            'extractor': extractor,
-                            'type': content_type,
-                            'download_id': download_id
-                        }
-                        
-                except Exception as e:
-                    if attempt < 4:
-                        time.sleep(1)
-                    continue
-            
-            return {'status': 'error', 'message': 'All bypass attempts failed for this platform'}
+                ffmpeg_available = self.check_ffmpeg_availability()
                 
+                if ffmpeg_available:
+                    ydl_opts = {
+                        'outtmpl': os.path.join(path, 'Reddit_%(title)s.%(ext)s'),
+                        'format': 'bestaudio/best',
+                        'postprocessors': [{
+                            'key': 'FFmpegExtractAudio',
+                            'preferredcodec': 'mp3',
+                            'preferredquality': '192',
+                        }],
+                        'ignoreerrors': True,
+                    }
+                    conversion_msg = "converted to MP3"
+                else:
+                    ydl_opts = {
+                        'outtmpl': os.path.join(path, 'Reddit_%(title)s.%(ext)s'),
+                        'format': 'bestaudio/best',
+                        'ignoreerrors': True,
+                    }
+                    conversion_msg = "in original format (install FFmpeg for MP3 conversion)"
+                
+                print(f"🎵 Reddit audio extraction settings: FFmpeg available = {ffmpeg_available}")
+            else:
+                ydl_opts = {
+                    'outtmpl': os.path.join(path, 'Reddit_%(title)s.%(ext)s'),
+                    'ignoreerrors': True,
+                }
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                
+                content_type = 'audio' if audio_only else 'post'
+                message = f'Reddit {content_type} downloaded successfully!'
+                if audio_only:
+                    message += f' ({conversion_msg})'
+                
+                return {
+                    'status': 'success',
+                    'message': message,
+                    'title': info.get('title', 'Reddit Post'),
+                    'type': content_type
+                }
         except Exception as e:
             return {'status': 'error', 'message': f'Platform download error: {str(e)}'}
     
     def download_instagram_content(self, url, path):
         """Download Instagram content with Vercel optimization"""
         try:
-            # Simplified Instagram downloader for Vercel
-            loader = instaloader.Instaloader(
-                dirname_pattern=path,
-                filename_pattern='{mediaid}',
-                download_videos=True,
-                download_video_thumbnails=False,
-                download_geotags=False,
-                download_comments=False,
-                save_metadata=False,
-                compress_json=False,
-                max_connection_attempts=1
-            )
-            
-            if '/p/' in url or '/reel/' in url or '/tv/' in url:
-                shortcode = self.extract_instagram_shortcode(url)
-                if shortcode:
-                    post = instaloader.Post.from_shortcode(loader.context, shortcode)
-                    loader.download_post(post, target='')
-                    
-                    download_id = f"ig_{datetime.now().timestamp()}"
-                    download_cache[download_id] = {
-                        'path': path,
-                        'username': post.owner_username,
-                        'type': 'instagram_post'
-                    }
-                    
-                    return {
-                        'status': 'success',
-                        'message': 'Instagram content downloaded successfully!',
-                        'username': post.owner_username,
-                        'type': 'instagram_post',
-                        'download_id': download_id
-                    }
-            
-            return {'status': 'error', 'message': 'Invalid Instagram URL format'}
+            if audio_only:
+                ffmpeg_available = self.check_ffmpeg_availability()
                 
+                if ffmpeg_available:
+                    ydl_opts = {
+                        'outtmpl': os.path.join(path, '%(extractor)s_%(title)s.%(ext)s'),
+                        'format': 'bestaudio/best',
+                        'postprocessors': [{
+                            'key': 'FFmpegExtractAudio',
+                            'preferredcodec': 'mp3',
+                            'preferredquality': '192',
+                        }],
+                        'ignoreerrors': True,
+                    }
+                    conversion_msg = "converted to MP3"
+                else:
+                    ydl_opts = {
+                        'outtmpl': os.path.join(path, '%(extractor)s_%(title)s.%(ext)s'),
+                        'format': 'bestaudio/best',
+                        'ignoreerrors': True,
+                    }
+                    conversion_msg = "in original format (install FFmpeg for MP3 conversion)"
+                
+                print(f"🎵 Generic audio extraction settings: FFmpeg available = {ffmpeg_available}")
+            else:
+                ydl_opts = {
+                    'outtmpl': os.path.join(path, '%(extractor)s_%(title)s.%(ext)s'),
+                    'format': 'best',
+                    'ignoreerrors': True,
+                }
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                
+                content_type = 'audio' if audio_only else 'media'
+                message = f'{content_type.title()} downloaded successfully!'
+                if audio_only:
+                    message += f' ({conversion_msg})'
+                
+                return {
+                    'status': 'success',
+                    'message': message,
+                    'title': info.get('title', 'Unknown'),
+                    'extractor': info.get('extractor', 'Unknown'),
+                    'type': content_type
+                }
         except Exception as e:
             return {'status': 'error', 'message': f'Instagram error: {str(e)}'}
     
-    def download_content(self, url, audio_only=False):
-        """Main download function optimized for Vercel"""
+    def download_content(self, url, custom_path=None, audio_only=False):
+        """Main download function"""
+        path = custom_path or get_user_download_dir()
         platform = self.detect_platform(url)
-        path = self.create_temp_dir()
         
+        # For direct downloads without folder creation
         try:
             if platform == 'youtube':
-                return self.download_youtube_content(url, path, audio_only)
+                result = self.download_youtube_content(url, path, audio_only)
             elif platform == 'instagram':
                 if audio_only:
-                    return {'status': 'error', 'message': 'Audio-only download not supported for Instagram'}
-                return self.download_instagram_content(url, path)
-            elif platform in ['tiktok', 'twitter', 'facebook', 'reddit']:
-                return self.download_generic_content(url, path, audio_only)
+                    return {'status': 'error', 'message': 'Audio extraction not supported for Instagram. Instagram content is primarily visual.'}
+                result = self.download_instagram_content(url, path, audio_only)
+            elif platform == 'tiktok':
+                result = self.download_tiktok_content(url, path, audio_only)
+            elif platform == 'twitter':
+                result = self.download_twitter_content(url, path, audio_only)
+            elif platform == 'facebook':
+                result = self.download_facebook_content(url, path, audio_only)
+            elif platform == 'reddit':
+                result = self.download_reddit_content(url, path, audio_only)
             else:
-                return self.download_generic_content(url, path, audio_only)
+                # Try generic download for other platforms
+                result = self.download_generic_content(url, path, audio_only)
+            
+            # Schedule auto-deletion for downloaded files and add timer info
+            if result.get('status') == 'success':
+                self.schedule_downloaded_files_deletion(path)
+                # Add deletion timing info to response
+                result['deletion_info'] = self.get_file_deletion_info(path)
+                result['auto_delete_seconds'] = 30
+            
+            return result
                 
         except Exception as e:
             return {'status': 'error', 'message': f'Unexpected error: {str(e)}'}
 
 # Initialize downloader
-downloader = VercelCompatibleDownloader()
+downloader = UniversalDownloader()
+
+@app.before_request
+def before_request():
+    """Run before each request"""
+    # Clean up old user folders periodically
+    if hasattr(app, 'last_cleanup'):
+        if time.time() - app.last_cleanup > 3600:  # Clean up every hour
+            cleanup_old_user_folders()
+            app.last_cleanup = time.time()
+    else:
+        app.last_cleanup = time.time()
 
 @app.route('/')
 def index():
@@ -553,115 +1101,346 @@ def bulk_download():
     except Exception as e:
         return jsonify({'status': 'error', 'message': f'Bulk download error: {str(e)}'})
 
+@app.route('/download-file/<path:filepath>')
+def download_file(filepath):
+    """Download a specific file and delete it after download"""
+    try:
+        print(f"🔍 Looking for file: {filepath}")
+        
+        # Get user-specific download directory
+        user_download_dir = get_user_download_dir()
+        
+        # Search for the file in user's directory only
+        actual_file_path = None
+        
+        # First, try to find the file directly
+        for root, dirs, files in os.walk(user_download_dir):
+            for file in files:
+                if file == filepath:
+                    actual_file_path = os.path.join(root, file)
+                    print(f"✅ Found exact match: {actual_file_path}")
+                    break
+            if actual_file_path:
+                break
+        
+        # If not found, try partial matching
+        if not actual_file_path:
+            print("🔍 Searching with partial matching...")
+            for root, dirs, files in os.walk(user_download_dir):
+                for file in files:
+                    if filepath in file or file in filepath:
+                        actual_file_path = os.path.join(root, file)
+                        print(f"🎯 Found partial match: {actual_file_path}")
+                        break
+                if actual_file_path:
+                    break
+        
+        if not actual_file_path or not os.path.exists(actual_file_path):
+            print(f"❌ File not found in user directory. Available files:")
+            for root, dirs, files in os.walk(user_download_dir):
+                for file in files:
+                    print(f"   - {file}")
+            return jsonify({'error': f'File not found: {filepath}'}), 404
+        
+        print(f"📁 Final file path: {actual_file_path}")
+        
+        # Mark file as downloaded to prevent auto-deletion
+        downloader.mark_file_as_downloaded(actual_file_path)
+        
+        # Get the actual filename for download
+        actual_filename = os.path.basename(actual_file_path)
+        
+        # Send file directly with proper headers
+        try:
+            print(f"📤 Sending file: {actual_filename}")
+            
+            # Delete original file and cleanup folders after download
+            def cleanup_after_download():
+                try:
+                    print(f"🧹 Starting cleanup for downloaded file: {actual_file_path}")
+                    
+                    # Wait a bit to ensure download completed
+                    import time
+                    time.sleep(2)
+                    
+                    # Delete the original file
+                    if os.path.exists(actual_file_path):
+                        os.remove(actual_file_path)
+                        print(f"🗑️ Deleted downloaded file: {actual_file_path}")
+                    
+                    # Clean up empty directories up to user directory
+                    parent_dir = os.path.dirname(actual_file_path)
+                    while parent_dir != user_download_dir and parent_dir != BASE_DOWNLOAD_DIR and os.path.exists(parent_dir):
+                        try:
+                            if not os.listdir(parent_dir):  # If directory is empty
+                                os.rmdir(parent_dir)
+                                print(f"🗂️ Removed empty directory: {os.path.basename(parent_dir)}")
+                                parent_dir = os.path.dirname(parent_dir)
+                            else:
+                                break
+                        except:
+                            break
+                    
+                    print("✅ Download cleanup completed")
+                    
+                except Exception as e:
+                    print(f"⚠️ Download cleanup error: {e}")
+            
+            # Schedule cleanup after file is sent
+            threading.Timer(5.0, cleanup_after_download).start()
+            
+            return send_file(
+                actual_file_path, 
+                as_attachment=True, 
+                download_name=actual_filename,
+                mimetype='application/octet-stream'
+            )
+            
+        except Exception as e:
+            print(f"❌ Failed to send file: {e}")
+            return jsonify({'error': f'Failed to send file: {str(e)}'}), 500
+        
+    except Exception as e:
+        error_msg = f'Download error: {str(e)}'
+        print(f"❌ {error_msg}")
+        return jsonify({'error': error_msg}), 500
+
 @app.route('/downloads')
 def list_downloads():
-    """List downloaded files from cache"""
+    """List downloaded files for current user"""
     try:
+        user_download_dir = get_user_download_dir()
+        print(f"📋 Listing downloads from user directory: {user_download_dir}")
         items = []
         
-        for download_id, cache_info in download_cache.items():
-            path = cache_info.get('path', '')
-            if os.path.exists(path):
-                for root, dirs, files in os.walk(path):
-                    for file in files:
-                        if not file.startswith('.'):
-                            file_path = os.path.join(root, file)
-                            try:
-                                file_size = os.path.getsize(file_path)
-                                items.append({
-                                    'name': file,
-                                    'size': file_size,
-                                    'folder': cache_info.get('type', 'unknown'),
-                                    'download_id': download_id
-                                })
-                            except:
-                                continue
+        # Define allowed media file extensions
+        allowed_extensions = {
+            # Video formats
+            '.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.3gp', '.ts', '.m2ts',
+            # Audio formats
+            '.mp3', '.wav', '.aac', '.ogg', '.flac', '.m4a', '.wma', '.opus', '.aiff', '.au',
+            # Image formats (for Instagram posts)
+            '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.svg'
+        }
         
-        return jsonify({'items': items})
+        if os.path.exists(user_download_dir):
+            for root, dirs, files in os.walk(user_download_dir):
+                for file in files:
+                    # Skip hidden files and system files
+                    if file.startswith('.') or file.endswith('.tmp') or file.endswith('.part'):
+                        continue
+                    
+                    # Skip subtitle files and other non-media files
+                    file_ext = os.path.splitext(file)[1].lower()
+                    if file_ext not in allowed_extensions:
+                        print(f"⏭️ Skipping non-media file: {file} (extension: {file_ext})")
+                        continue
+                        
+                    file_path = os.path.join(root, file)
+                    try:
+                        file_size = os.path.getsize(file_path)
+                        relative_path = os.path.relpath(file_path, user_download_dir)
+                        folder_name = os.path.basename(os.path.dirname(file_path)) if os.path.dirname(relative_path) else 'root'
+                        
+                        items.append({
+                            'name': file,
+                            'path': relative_path,
+                            'size': file_size,
+                            'folder': folder_name,
+                            'type': 'video' if file_ext in ['.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.3gp', '.ts', '.m2ts'] else 'audio' if file_ext in ['.mp3', '.wav', '.aac', '.ogg', '.flac', '.m4a', '.wma', '.opus', '.aiff', '.au'] else 'image'
+                        })
+                        print(f"📄 Found media file: {file} ({file_size} bytes)")
+                    except OSError as e:
+                        print(f"⚠️ Skipping file {file}: {e}")
+                        continue
+        
+        # Add deletion timing info
+        deletion_info = downloader.get_file_deletion_info(user_download_dir)
+        
+        print(f"✅ Found {len(items)} downloadable media files for user")
+        return jsonify({
+            'items': items,
+            'deletion_info': deletion_info
+        })
         
     except Exception as e:
         return jsonify({'error': f'Error listing downloads: {str(e)}'})
 
-@app.route('/download-file/<path:filename>')
-def download_file(filename):
-    """Download a specific file"""
+@app.route('/cleanup-files', methods=['POST'])
+def cleanup_files():
+    """Manual cleanup endpoint to remove undownloaded files for current user"""
     try:
-        # Search in cache for the file
-        for download_id, cache_info in download_cache.items():
-            path = cache_info.get('path', '')
-            if os.path.exists(path):
-                for root, dirs, files in os.walk(path):
-                    for file in files:
-                        if file == filename or filename in file:
-                            file_path = os.path.join(root, file)
-                            if os.path.exists(file_path):
-                                return send_file(
-                                    file_path,
-                                    as_attachment=True,
-                                    download_name=file,
-                                    mimetype='application/octet-stream'
-                                )
+        user_download_dir = get_user_download_dir()
+        files_to_cleanup = []
         
-        return jsonify({'error': 'File not found'}), 404
+        # Get all files in user directory
+        for root, dirs, files in os.walk(user_download_dir):
+            for file in files:
+                file_path = os.path.join(root, file)
+                if file_path in downloader.downloaded_files:
+                    if not downloader.downloaded_files[file_path]['downloaded']:
+                        files_to_cleanup.append(file_path)
+        
+        cleanup_count = 0
+        
+        for file_path in files_to_cleanup:
+            try:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    cleanup_count += 1
+                    print(f"🧹 Manually cleaned up: {os.path.basename(file_path)}")
+                    
+                    # Remove from tracking
+                    if file_path in downloader.downloaded_files:
+                        del downloader.downloaded_files[file_path]
+                        
+            except Exception as e:
+                print(f"❌ Error cleaning up {file_path}: {e}")
+        
+        # Also clean up subtitle files and other non-media files
+        subtitle_extensions = {'.vtt', '.srt', '.ass', '.ssa', '.sub', '.idx', '.smi', '.rt', '.txt'}
+        
+        for root, dirs, files in os.walk(user_download_dir):
+            for file in files:
+                file_ext = os.path.splitext(file)[1].lower()
+                if file_ext in subtitle_extensions:
+                    file_path = os.path.join(root, file)
+                    try:
+                        os.remove(file_path)
+                        cleanup_count += 1
+                        print(f"🧹 Cleaned up subtitle file: {os.path.basename(file_path)}")
+                    except Exception as e:
+                        print(f"❌ Error cleaning up subtitle file {file_path}: {e}")
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Cleaned up {cleanup_count} files (including subtitle files)',
+            'cleaned_count': cleanup_count
+        })
         
     except Exception as e:
-        return jsonify({'error': f'Download error: {str(e)}'}), 500
+        return jsonify({'status': 'error', 'message': f'Cleanup error: {str(e)}'}), 500
 
 @app.route('/clear-downloads', methods=['POST'])
 def clear_downloads():
-    """Clear all downloads"""
+    """Clear all downloads for current user"""
     try:
-        global download_cache
+        user_download_dir = get_user_download_dir()
+        files_removed = 0
+        dirs_removed = 0
         
-        # Clean up temp directories
-        for download_id, cache_info in download_cache.items():
-            path = cache_info.get('path', '')
-            if os.path.exists(path):
-                try:
-                    shutil.rmtree(path)
-                except:
-                    pass
-        
-        download_cache.clear()
-        
-        return jsonify({'status': 'success', 'message': 'All downloads cleared'})
-        
+        if os.path.exists(user_download_dir):
+            # Cancel any pending auto-deletion timers for this user
+            user_files = [f for f in downloader.downloaded_files.keys() if f.startswith(user_download_dir)]
+            for file_path in user_files:
+                if file_path in downloader.downloaded_files:
+                    timer = downloader.downloaded_files[file_path].get('timer')
+                    if timer:
+                        timer.cancel()
+                        print(f"⏰ Cancelled auto-deletion timer for: {os.path.basename(file_path)}")
+                    del downloader.downloaded_files[file_path]
+            
+            # Remove all files and subdirectories
+            for root, dirs, files in os.walk(user_download_dir, topdown=False):
+                # Remove all files first
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    try:
+                        os.remove(file_path)
+                        files_removed += 1
+                        print(f"🗑️ Removed file: {file}")
+                    except Exception as e:
+                        print(f"❌ Error removing file {file}: {e}")
+                
+                # Remove all directories (from bottom up)
+                for dir in dirs:
+                    dir_path = os.path.join(root, dir)
+                    try:
+                        if os.path.exists(dir_path) and not os.listdir(dir_path):  # Only remove if empty
+                            os.rmdir(dir_path)
+                            dirs_removed += 1
+                            print(f"🗂️ Removed empty directory: {dir}")
+                    except Exception as e:
+                        print(f"❌ Error removing directory {dir}: {e}")
+            
+            # Finally, try to remove the user's main download directory if it's empty
+            try:
+                if os.path.exists(user_download_dir) and not os.listdir(user_download_dir):
+                    os.rmdir(user_download_dir)
+                    dirs_removed += 1
+                    print(f"🗂️ Removed empty user download directory: {os.path.basename(user_download_dir)}")
+            except Exception as e:
+                print(f"❌ Error removing user directory: {e}")
+            
+            return jsonify({
+                'status': 'success',
+                'message': f'All downloads cleared successfully! Removed {files_removed} files and {dirs_removed} directories.',
+                'files_removed': files_removed,
+                'dirs_removed': dirs_removed
+            })
+        else:
+            return jsonify({
+                'status': 'success',
+                'message': 'No downloads to clear'
+            })
+            
     except Exception as e:
-        return jsonify({'status': 'error', 'message': f'Clear error: {str(e)}'})
-
-@app.route('/health')
-def health_check():
-    """Health check endpoint"""
-    return jsonify({
-        'status': 'healthy',
-        'message': 'Vercel deployment running',
-        'timestamp': datetime.now().isoformat()
-    })
-
-@app.route('/check-ffmpeg')
-def check_ffmpeg():
-    """Check FFmpeg availability"""
-    try:
-        available = downloader.check_ffmpeg_availability()
-        return jsonify({
-            'available': available,
-            'message': 'FFmpeg is available' if available else 'FFmpeg not available - audio will be in original format'
-        })
-    except Exception as e:
-        return jsonify({'available': False, 'error': str(e)})
-
-@app.errorhandler(404)
-def not_found(error):
-    return jsonify({'error': 'Endpoint not found'}), 404
-
-@app.errorhandler(500)
-def internal_error(error):
-    return jsonify({'error': 'Internal server error'}), 500
-
-@app.errorhandler(Exception)
-def handle_exception(e):
-    return jsonify({'error': f'Server error: {str(e)}'}), 500
+        return jsonify({'status': 'error', 'message': f'Clear error: {str(e)}'}), 500
 
 # Vercel entry point
 if __name__ == '__main__':
-    app.run(debug=False)
+    print("=" * 60)
+    print("UNIVERSAL SOCIAL MEDIA DOWNLOADER")
+    print("=" * 60)
+    print("Starting server...")
+    print("Supported platforms: YouTube, Instagram, TikTok, Twitter/X, Facebook, Reddit, and more!")
+    print("Features: Stories, Reels, Posts, Videos, Bulk downloads")
+    print("Multi-user support with isolated download folders")
+    print("Server running on: http://localhost:5000")
+    print("=" * 60)
+    
+    # Ensure downloads directory exists
+    if not os.path.exists(BASE_DOWNLOAD_DIR):
+        os.makedirs(BASE_DOWNLOAD_DIR)
+        print(f"✅ Created downloads directory: {BASE_DOWNLOAD_DIR}")
+    
+    # Test if required modules are available
+    try:
+        import yt_dlp
+        print("✅ yt-dlp is available")
+    except ImportError:
+        print("❌ yt-dlp is not installed. Run: pip install yt-dlp")
+    
+    try:
+        import instaloader
+        print("✅ instaloader is available")
+    except ImportError:
+        print("❌ instaloader is not installed. Run: pip install instaloader")
+    
+    # Check FFmpeg availability
+    try:
+        import subprocess
+        result = subprocess.run(['ffmpeg', '-version'], 
+                              capture_output=True, 
+                              text=True, 
+                              timeout=5)
+        if result.returncode == 0:
+            print("✅ FFmpeg is available - MP3 conversion supported")
+        else:
+            print("⚠️ FFmpeg found but not working properly")
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        print("⚠️ FFmpeg is not installed - audio will be downloaded in original format")
+        print("   To enable MP3 conversion, install FFmpeg:")
+        print("   - Windows: Download from https://ffmpeg.org/download.html")
+        print("   - Or using chocolatey: choco install ffmpeg")
+        print("   - Or using winget: winget install ffmpeg")
+    except Exception as e:
+        print(f"⚠️ FFmpeg check failed: {e}")
+    
+    print("=" * 60)
+    
+    try:
+        app.run(debug=True, host='0.0.0.0', port=5000)
+    except Exception as e:
+        print(f"❌ Failed to start server: {e}")
+        print("Make sure port 5000 is not already in use")
