@@ -3,7 +3,7 @@ Flask==2.3.3
 Werkzeug==2.3.7
 
 # Video/Audio downloading
-yt-dlp==2023.10.13
+yt-dlp
 instaloader==4.9.6
 
 # HTTP requests
